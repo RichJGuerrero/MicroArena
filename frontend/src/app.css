@@ -65,3 +65,80 @@ p {
   border-radius: 6px;
   cursor: not-allowed;
 }
+
+/* Clans */
+.clans-header {
+  max-width: 800px;
+  margin-bottom: 3rem;
+}
+
+.clans-header p {
+  margin-bottom: 1.25rem;
+}
+
+.primary {
+  background: #1f1f1f;
+  color: #eaeaea;
+  border: 1px solid #2a2a2a;
+  padding: 0.6rem 1.2rem;
+  border-radius: 6px;
+  cursor: not-allowed;
+}
+
+.clans-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 2rem;
+}
+
+.clan-card {
+  background: #121212;
+  border: 1px solid #1f1f1f;
+  border-radius: 10px;
+  padding: 1.5rem;
+}
+
+/* Clan rules */
+.clan-rules {
+  max-width: 800px;
+  margin-bottom: 3rem;
+}
+
+.clan-rules h2 {
+  margin-bottom: 1rem;
+}
+
+.clan-rules ul {
+  list-style: disc;
+  padding-left: 1.5rem;
+  opacity: 0.85;
+}
+
+.clan-rules li {
+  margin-bottom: 0.5rem;
+}
+
+/* Clan detail page */
+.clan-detail {
+  display: grid;
+  gap: 2rem;
+  max-width: 900px;
+}
+
+.clan-section {
+  background: #121212;
+  border: 1px solid #1f1f1f;
+  border-radius: 10px;
+  padding: 1.5rem;
+}
+
+.roster {
+  list-style: none;
+  padding-left: 0;
+  margin-bottom: 0.5rem;
+}
+
+.roster li {
+  padding: 0.25rem 0;
+  opacity: 0.9;
+}

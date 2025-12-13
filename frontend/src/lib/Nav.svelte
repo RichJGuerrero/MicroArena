@@ -1,11 +1,13 @@
 <script>
   const links = [
-    { name: "Home", href: "/" },
-    { name: "Arena", href: "/arena" },
-    { name: "Tournaments", href: "/tournaments" },
-    { name: "Login", href: "/login" },
-    { name: "Signup", href: "/signup" }
-  ];
+  { name: "Home", href: "/" },
+  { name: "Arena", href: "/arena" },
+  { name: "Clans", href: "/clans" },
+  { name: "Tournaments", href: "/tournaments" },
+  { name: "Login", href: "/login" },
+  { name: "Signup", href: "/signup" }
+];
+
 </script>
 
 <nav class="nav">
