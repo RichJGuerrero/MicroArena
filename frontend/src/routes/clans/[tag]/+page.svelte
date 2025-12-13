@@ -23,11 +23,12 @@
     <section class="clan-section">
       <h2>Roster</h2>
       <ul class="roster">
-        <li>PlayerOne</li>
-        <li>PlayerTwo</li>
-        <li>PlayerThree</li>
-        <li>PlayerFour</li>
-      </ul>
+  <li><a href="/users/PlayerOne">PlayerOne</a></li>
+  <li><a href="/users/PlayerTwo">PlayerTwo</a></li>
+  <li><a href="/users/PlayerThree">PlayerThree</a></li>
+  <li><a href="/users/PlayerFour">PlayerFour</a></li>
+</ul>
+
       <p class="muted">4 / 8 members</p>
     </section>
 

@@ -3,6 +3,7 @@
   { name: "Home", href: "/" },
   { name: "Arena", href: "/arena" },
   { name: "Clans", href: "/clans" },
+  { name: "Integrity", href: "/integrity" },
   { name: "Tournaments", href: "/tournaments" },
   { name: "Login", href: "/login" },
   { name: "Signup", href: "/signup" }
