@@ -2,6 +2,7 @@
   const links = [
   { name: "Home", href: "/" },
   { name: "Arena", href: "/arena" },
+  { name: "Ladder", href: "/ladder" },
   { name: "Clans", href: "/clans" },
   { name: "Integrity", href: "/integrity" },
   { name: "Tournaments", href: "/tournaments" },

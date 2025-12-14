@@ -34,3 +34,7 @@
     </section>
   </div>
 </div>
+
+<p class="muted">
+  Example match: <a href="/matches/001">View Match #001</a>
+</p>
