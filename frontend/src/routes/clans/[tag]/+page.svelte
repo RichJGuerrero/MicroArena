@@ -1,50 +1,35 @@
 <script lang="ts">
-  // In the future this will come from the backend
-  export let params;
+	export let data;
 
-  const clanTag = params.tag.toUpperCase();
+	const { clan, error } = data;
 </script>
 
-<div class="page">
-  <h1>[{clanTag}] Clan Name</h1>
-  <p class="subtitle">
-    Competitive squad • Integrity-first • Season 1 participant
-  </p>
+<div class="max-w-2xl mx-auto p-6 space-y-6">
+	{#if error}
+		<p class="text-red-400">{error}</p>
+	{:else if !clan}
+		<p class="opacity-70">Loading clan…</p>
+	{:else}
+		<h1 class="text-3xl font-bold">
+			<span class="font-mono">{clan.tag}</span>
+			<span class="opacity-70"> — {clan.name}</span>
+		</h1>
 
-  <div class="clan-detail">
-    <section class="clan-section">
-      <h2>Overview</h2>
-      <p>
-        This clan represents a competitive team competing on MicroArena.
-        Clan reputation is shared across all members.
-      </p>
-    </section>
+		<div class="flex gap-6 text-sm opacity-80">
+			<p>Members: {clan.members.length}</p>
+			<p>Integrity: {clan.integrity}</p>
+		</div>
 
-    <section class="clan-section">
-      <h2>Roster</h2>
-      <ul class="roster">
-  <li><a href="/users/PlayerOne">PlayerOne</a></li>
-  <li><a href="/users/PlayerTwo">PlayerTwo</a></li>
-  <li><a href="/users/PlayerThree">PlayerThree</a></li>
-  <li><a href="/users/PlayerFour">PlayerFour</a></li>
-</ul>
+		<hr class="border-neutral-800" />
 
-      <p class="muted">4 / 8 members</p>
-    </section>
+		<section class="space-y-2">
+			<h2 class="text-xl font-semibold">Members</h2>
 
-    <section class="clan-section">
-      <h2>Integrity</h2>
-      <p>
-        Clan Integrity reflects the collective conduct of all members.
-        Access to premium events may require a high integrity score.
-      </p>
-      <p class="muted">Integrity Score: N/A</p>
-    </section>
-
-    <section class="clan-section">
-      <h2>Season Status</h2>
-      <p>Season 1: Active</p>
-      <p class="muted">Prestige rewards available at season end.</p>
-    </section>
-  </div>
+			<ul class="space-y-1">
+				{#each clan.members as member}
+					<li class="font-mono">{member}</li>
+				{/each}
+			</ul>
+		</section>
+	{/if}
 </div>

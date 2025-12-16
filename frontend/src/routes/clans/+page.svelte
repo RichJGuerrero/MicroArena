@@ -110,7 +110,14 @@
 		<div class="p-4 border border-neutral-700 rounded">
 			<p class="font-semibold">
 				You are in clan:
-				<span class="font-mono">{currentClan.tag}</span> — {currentClan.name}
+				<a
+	href={`/clans/${currentClan.tag.toLowerCase()}`}
+	class="font-mono underline hover:opacity-80"
+>
+	{currentClan.tag}
+</a>
+ — {currentClan.name}
+
 			</p>
 			<p class="text-sm opacity-70">
 				Members: {currentClan.members.length}
