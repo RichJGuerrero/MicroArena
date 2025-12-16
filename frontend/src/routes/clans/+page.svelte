@@ -1,19 +1,41 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
+
+	// Identity
 	let usernameKey = '';
-	let clanTag = '';
-	let clanName = '';
+
+	// Create Clan form state (separate)
+	let createClanTag = '';
+	let createClanName = '';
+
+	// Join/Leave form state (separate)
+	let joinClanTag = '';
 
 	let message = '';
 
+	onMount(() => {
+		const stored = localStorage.getItem('usernameKey');
+		if (stored) usernameKey = stored;
+	});
+
+	function requireIdentity(): boolean {
+		if (!usernameKey) {
+			message = 'No user identity found. Please sign up again.';
+			return false;
+		}
+		return true;
+	}
+
 	async function createClan() {
 		message = '';
+		if (!requireIdentity()) return;
 
 		const res = await fetch('/api/clans/create', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({
-				tag: clanTag,
-				name: clanName,
+				tag: createClanTag,
+				name: createClanName,
 				ownerUsernameKey: usernameKey
 			})
 		});
@@ -24,13 +46,14 @@
 
 	async function joinClan() {
 		message = '';
+		if (!requireIdentity()) return;
 
 		const res = await fetch('/api/clans/join', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({
 				usernameKey,
-				tag: clanTag
+				tag: joinClanTag
 			})
 		});
 
@@ -40,13 +63,12 @@
 
 	async function leaveClan() {
 		message = '';
+		if (!requireIdentity()) return;
 
 		const res = await fetch('/api/clans/leave', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({
-				usernameKey
-			})
+			body: JSON.stringify({ usernameKey })
 		});
 
 		const data = await res.json();
@@ -57,14 +79,9 @@
 <div class="max-w-2xl mx-auto p-6 space-y-8">
 	<h1 class="text-3xl font-bold">Clans</h1>
 
-	<div class="space-y-2">
-		<label class="block text-sm opacity-80">Your Username Key</label>
-		<input
-			class="w-full px-3 py-2 bg-neutral-900 border border-neutral-700 rounded"
-			bind:value={usernameKey}
-			placeholder="micro"
-		/>
-	</div>
+	<p class="text-sm opacity-70">
+		Signed in as: <span class="font-mono">{usernameKey || '(none)'}</span>
+	</p>
 
 	<hr class="border-neutral-800" />
 
@@ -74,19 +91,20 @@
 
 		<input
 			class="w-full px-3 py-2 bg-neutral-900 border border-neutral-700 rounded"
-			bind:value={clanTag}
+			bind:value={createClanTag}
 			placeholder="Clan Tag (2–5 chars)"
 		/>
 
 		<input
 			class="w-full px-3 py-2 bg-neutral-900 border border-neutral-700 rounded"
-			bind:value={clanName}
+			bind:value={createClanName}
 			placeholder="Clan Name"
 		/>
 
 		<button
 			class="px-4 py-2 bg-white text-black rounded font-semibold"
 			on:click={createClan}
+			disabled={!usernameKey}
 		>
 			Create Clan
 		</button>
@@ -100,7 +118,7 @@
 
 		<input
 			class="w-full px-3 py-2 bg-neutral-900 border border-neutral-700 rounded"
-			bind:value={clanTag}
+			bind:value={joinClanTag}
 			placeholder="Clan Tag"
 		/>
 
@@ -108,6 +126,7 @@
 			<button
 				class="px-4 py-2 bg-white text-black rounded font-semibold"
 				on:click={joinClan}
+				disabled={!usernameKey}
 			>
 				Join Clan
 			</button>
@@ -115,6 +134,7 @@
 			<button
 				class="px-4 py-2 border border-neutral-600 rounded"
 				on:click={leaveClan}
+				disabled={!usernameKey}
 			>
 				Leave Clan
 			</button>

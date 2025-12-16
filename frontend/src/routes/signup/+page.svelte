@@ -4,22 +4,28 @@
   let error = '';
 
   async function handleSignup() {
-    error = '';
+	error = '';
 
-    const res = await fetch('/api/signup', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password })
-    });
+	const res = await fetch('/api/signup', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ username, password })
+	});
 
-    if (!res.ok) {
-      const data = await res.json();
-      error = data.error || 'Signup failed';
-      return;
-    }
+	const data = await res.json();
 
-    window.location.href = `/users/${username}`;
-  }
+	if (!res.ok) {
+		error = data.error || 'Signup failed';
+		return;
+	}
+
+	// 🔑 STORE THE CANONICAL IDENTITY
+	localStorage.setItem('usernameKey', data.usernameKey);
+
+	// ✅ ALWAYS ROUTE USING usernameKey, NOT RAW INPUT
+	window.location.href = `/users/${data.usernameKey}`;
+}
+
 </script>
 
 <div class="page">
