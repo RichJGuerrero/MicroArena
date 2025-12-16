@@ -1,34 +1,35 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 
-	// Identity
 	let usernameKey = '';
 
-	// Create Clan form state (separate)
+	// Create form
 	let createClanTag = '';
 	let createClanName = '';
 
-	// Join/Leave form state (separate)
+	// Join form
 	let joinClanTag = '';
 
+	// State
 	let message = '';
+	let currentClan: null | { tag: string; name: string; members: string[] } = null;
 
-	onMount(() => {
+	onMount(async () => {
 		const stored = localStorage.getItem('usernameKey');
-		if (stored) usernameKey = stored;
-	});
-
-	function requireIdentity(): boolean {
-		if (!usernameKey) {
+		if (!stored) {
 			message = 'No user identity found. Please sign up again.';
-			return false;
+			return;
 		}
-		return true;
-	}
+
+		usernameKey = stored;
+
+		const res = await fetch(`/api/clans/me?usernameKey=${usernameKey}`);
+		const data = await res.json();
+		currentClan = data.clan;
+	});
 
 	async function createClan() {
 		message = '';
-		if (!requireIdentity()) return;
 
 		const res = await fetch('/api/clans/create', {
 			method: 'POST',
@@ -41,12 +42,17 @@
 		});
 
 		const data = await res.json();
-		message = data.error ?? 'Clan created successfully';
+		if (data.error) {
+			message = data.error;
+			return;
+		}
+
+		message = 'Clan created successfully';
+		await refreshClan();
 	}
 
 	async function joinClan() {
 		message = '';
-		if (!requireIdentity()) return;
 
 		const res = await fetch('/api/clans/join', {
 			method: 'POST',
@@ -58,12 +64,17 @@
 		});
 
 		const data = await res.json();
-		message = data.error ?? 'Joined clan';
+		if (data.error) {
+			message = data.error;
+			return;
+		}
+
+		message = 'Joined clan';
+		await refreshClan();
 	}
 
 	async function leaveClan() {
 		message = '';
-		if (!requireIdentity()) return;
 
 		const res = await fetch('/api/clans/leave', {
 			method: 'POST',
@@ -72,7 +83,19 @@
 		});
 
 		const data = await res.json();
-		message = data.error ?? 'Left clan';
+		if (data.error) {
+			message = data.error;
+			return;
+		}
+
+		message = 'Left clan';
+		currentClan = null;
+	}
+
+	async function refreshClan() {
+		const res = await fetch(`/api/clans/me?usernameKey=${usernameKey}`);
+		const data = await res.json();
+		currentClan = data.clan;
 	}
 </script>
 
@@ -80,8 +103,20 @@
 	<h1 class="text-3xl font-bold">Clans</h1>
 
 	<p class="text-sm opacity-70">
-		Signed in as: <span class="font-mono">{usernameKey || '(none)'}</span>
+		Signed in as: <span class="font-mono">{usernameKey}</span>
 	</p>
+
+	{#if currentClan}
+		<div class="p-4 border border-neutral-700 rounded">
+			<p class="font-semibold">
+				You are in clan:
+				<span class="font-mono">{currentClan.tag}</span> — {currentClan.name}
+			</p>
+			<p class="text-sm opacity-70">
+				Members: {currentClan.members.length}
+			</p>
+		</div>
+	{/if}
 
 	<hr class="border-neutral-800" />
 
@@ -90,21 +125,23 @@
 		<h2 class="text-xl font-semibold">Create Clan</h2>
 
 		<input
-			class="w-full px-3 py-2 bg-neutral-900 border border-neutral-700 rounded"
 			bind:value={createClanTag}
-			placeholder="Clan Tag (2–5 chars)"
+			placeholder="Clan Tag"
+			disabled={!!currentClan}
+			class="w-full px-3 py-2 bg-neutral-900 border border-neutral-700 rounded"
 		/>
 
 		<input
-			class="w-full px-3 py-2 bg-neutral-900 border border-neutral-700 rounded"
 			bind:value={createClanName}
 			placeholder="Clan Name"
+			disabled={!!currentClan}
+			class="w-full px-3 py-2 bg-neutral-900 border border-neutral-700 rounded"
 		/>
 
 		<button
-			class="px-4 py-2 bg-white text-black rounded font-semibold"
 			on:click={createClan}
-			disabled={!usernameKey}
+			disabled={!!currentClan}
+			class="px-4 py-2 bg-white text-black rounded font-semibold disabled:opacity-50"
 		>
 			Create Clan
 		</button>
@@ -117,24 +154,25 @@
 		<h2 class="text-xl font-semibold">Join / Leave Clan</h2>
 
 		<input
-			class="w-full px-3 py-2 bg-neutral-900 border border-neutral-700 rounded"
 			bind:value={joinClanTag}
 			placeholder="Clan Tag"
+			disabled={!!currentClan}
+			class="w-full px-3 py-2 bg-neutral-900 border border-neutral-700 rounded"
 		/>
 
 		<div class="flex gap-3">
 			<button
-				class="px-4 py-2 bg-white text-black rounded font-semibold"
 				on:click={joinClan}
-				disabled={!usernameKey}
+				disabled={!!currentClan}
+				class="px-4 py-2 bg-white text-black rounded font-semibold disabled:opacity-50"
 			>
 				Join Clan
 			</button>
 
 			<button
-				class="px-4 py-2 border border-neutral-600 rounded"
 				on:click={leaveClan}
-				disabled={!usernameKey}
+				disabled={!currentClan}
+				class="px-4 py-2 border border-neutral-600 rounded disabled:opacity-50"
 			>
 				Leave Clan
 			</button>
