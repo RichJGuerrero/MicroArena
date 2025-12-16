@@ -103,7 +103,13 @@
 	<h1 class="text-3xl font-bold">Clans</h1>
 
 	<p class="text-sm opacity-70">
-		Signed in as: <span class="font-mono">{usernameKey}</span>
+		Signed in as:
+<a
+	href={`/users/${usernameKey}`}
+	class="font-mono underline hover:opacity-80"
+>
+	{usernameKey}
+</a>
 	</p>
 
 	{#if currentClan}

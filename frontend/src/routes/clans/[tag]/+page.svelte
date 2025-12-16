@@ -26,10 +26,17 @@
 			<h2 class="text-xl font-semibold">Members</h2>
 
 			<ul class="space-y-1">
-				{#each clan.members as member}
-					<li class="font-mono">{member}</li>
-				{/each}
-			</ul>
+	{#each clan.members as member}
+		<li>
+			<a
+				href={`/users/${member}`}
+				class="font-mono underline hover:opacity-80"
+			>
+				{member}
+			</a>
+		</li>
+	{/each}
+</ul>
 		</section>
 	{/if}
 </div>

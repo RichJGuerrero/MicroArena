@@ -1,45 +1,40 @@
 <script lang="ts">
-  export let params;
-  const username = params.username;
+	export let data;
+
+	const { user, error } = data;
 </script>
 
-<div class="page">
-  <h1>{username}</h1>
-  <p class="subtitle">
-    Competitive player • Season 1
-  </p>
+<div class="max-w-2xl mx-auto p-6 space-y-6">
+	{#if error}
+		<p class="text-red-400">{error}</p>
+	{:else if !user}
+		<p class="opacity-70">Loading profile…</p>
+	{:else}
+		<h1 class="text-3xl font-bold font-mono">
+			{user.username}
+		</h1>
 
-  <div class="profile-grid">
-    <section class="profile-card">
-      <h2>Overview</h2>
-      <p>
-        This profile represents a competitive player on MicroArena.
-        Performance, conduct, and integrity are tracked over time.
-      </p>
-    </section>
+		<hr class="border-neutral-800" />
 
-    <section class="profile-card">
-      <h2>Integrity</h2>
-      <p>
-        Integrity reflects competitive conduct across all matches and events.
-      </p>
-      <p class="muted">Integrity Score: N/A</p>
-    </section>
+		<section class="space-y-2">
+			<h2 class="text-xl font-semibold">Profile</h2>
 
-    <section class="profile-card">
-      <h2>Clan</h2>
-      <p>
-        Clan affiliation connects players to team-based competition.
-      </p>
-      <p class="muted">Clan: None</p>
-    </section>
-
-    <section class="profile-card">
-      <h2>Season Status</h2>
-      <p>Season 1: Active</p>
-      <p class="muted">
-        Prestige rewards available at season end.
-      </p>
-    </section>
-  </div>
+			{#if user.clan}
+				<p>
+					Clan:
+					<a
+						href={`/clans/${user.clan.tag.toLowerCase()}`}
+						class="font-mono underline hover:opacity-80"
+					>
+						{user.clan.tag}
+					</a>
+					— {user.clan.name}
+				</p>
+			{:else}
+				<p class="opacity-70">
+					Not currently in a clan
+				</p>
+			{/if}
+		</section>
+	{/if}
 </div>
