@@ -39,12 +39,19 @@
 		}
 	}
 	
-	$: currentPath = $page.url.pathname;
-	
-	function isActive(path: string): boolean {
-		if (path === '/') return currentPath === '/';
-		return currentPath.startsWith(path);
+	// Track current route for nav highlighting
+	function isActive(path: string, currentPath: string): boolean {
+		// Exact match for home
+		if (path === '/' && currentPath === '/') return true;
+		
+		// For other paths, check if pathname starts with the path
+		if (path !== '/') {
+			return currentPath === path || currentPath.startsWith(path + '/');
+		}
+		
+		return false;
 	}
+
 </script>
 
 <div class="app">
@@ -57,11 +64,11 @@
 				</a>
 				
 				<div class="nav-links">
-					<a href="/beef" class:active={isActive('/beef')}>Beef</a>
-					<a href="/tournaments" class:active={isActive('/tournaments')}>Tournaments</a>
-					<a href="/clans" class:active={isActive('/clans')}>Clans</a>
-					<a href="/ladder" class:active={isActive('/ladder')}>Ladder</a>
-					<a href="/integrity" class:active={isActive('/integrity')}>Integrity</a>
+					<a href="/beef" class:active={isActive('/beef', $page.url.pathname)}>Beef</a>
+					<a href="/tournaments" class:active={isActive('/tournaments', $page.url.pathname)}>Tournaments</a>
+					<a href="/clans" class:active={isActive('/clans', $page.url.pathname)}>Clans</a>
+					<a href="/ladder" class:active={isActive('/ladder', $page.url.pathname)}>Ladder</a>
+					<a href="/integrity" class:active={isActive('/integrity', $page.url.pathname)}>Integrity</a>
 				</div>
 				
 				<div class="nav-user">
