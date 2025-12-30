@@ -55,7 +55,7 @@
 				<li><span class="severity s2">-10</span> No-shows</li>
 				<li><span class="severity s3">-15</span> Unsportsmanlike conduct</li>
 				<li><span class="severity s4">-20</span> Dispute abuse</li>
-				<li><span class="severity s5">-25</span> Cheating</li>
+				<li><span class="severity s5">perma ban</span> Cheating</li>
 			</ul>
 		</div>
 		
@@ -90,7 +90,7 @@
 					<span class="tier-badge open">OPEN</span>
 					<span class="tier-req">50+ Required</span>
 				</div>
-				<p>Entry-level tournaments for all.</p>
+				<p>Entry-level tournaments.</p>
 			</div>
 		</div>
 	</section>

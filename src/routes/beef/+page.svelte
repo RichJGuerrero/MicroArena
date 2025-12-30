@@ -143,11 +143,11 @@
 {#if !FEATURE_ENABLED}
 	<ComingSoon
 		title="Beef Matches"
-		tagline="Settle rivalries with structure, refs, and integrity."
-		description="Beef Matches will enable direct clan-vs-clan challenges with clear rules, scheduling, and oversight. The focus is accountability, transparency, and clean dispute resolution."
+		tagline="Settle rivalries with structure and integrity."
+		description="Beef Matches will enable direct challenges with clear rules, scheduling, and oversight (eventually). The focus is settlement of trash talk and good old fashioned beef (think 1v1 on rust)."
 		planned={[
 			'Challenge/accept flow (clan vs clan)',
-			'Flexible match formats (1v1 to 5v5)',
+			'Flexible match formats (1v1 to 4v4)',
 			'Referee and stream requirements (configurable per match)',
 			'Result reporting and integrity impact for behavior (no-shows, disputes abuse)',
 			'Future: winner-take-all / prestige formats once the platform is stable'

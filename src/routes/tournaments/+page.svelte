@@ -117,11 +117,11 @@
 	<ComingSoon
 		title="Tournaments"
 		tagline="Curated competition with real oversight."
-		description="Tournaments will deliver scheduled brackets, integrity-gated tiers, and referee oversight. The goal is high-signal competition without queue abuse, stalling, or dispute chaos."
+		description="Tournaments will deliver scheduled brackets, integrity-gated tiers, and referee oversight (eventually, for showcase tournaments). The goal is high-signal competition without queue abuse, stalling, or dispute chaos. XP only. Paid prizes to come"
 		planned={[
-			'Showcase-style scheduled brackets (one match at a time)',
+			'Showcase-style scheduled brackets (one match at a time with limited teams to prevent time torching. Dedicated real time referee oversight.)',
 			'Integrity tiers: Open / Premier / Showcase',
-			'Live referee presence and clear dispute workflow',
+			'Live referee presence and clear dispute workflow for showcase tournaments',
 			'Seasonal ladder alignment + prestige rewards (OG animated emblem concept)',
 			'Anti-abuse guardrails to prevent multi-queue exploitation'
 		]}
