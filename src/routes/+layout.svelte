@@ -264,7 +264,13 @@
 		font-size: 0.875rem;
 	}
 	
-	.footer-links { display: flex; gap: var(--space-3xl); }
+	/* FIX: force real column gap so “Beef Matches” and “Clans” don’t visually merge */
+	.footer-links {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		column-gap: var(--space-3xl);
+		row-gap: var(--space-xl);
+	}
 	
 	.footer-section h4 {
 		font-size: 0.75rem;
@@ -300,5 +306,9 @@
 	@media (max-width: 640px) {
 		.nav-user { gap: var(--space-sm); }
 		.user-name { display: none; }
+		.footer-links {
+			grid-template-columns: 1fr;
+			row-gap: var(--space-lg);
+		}
 	}
 </style>
