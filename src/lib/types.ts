@@ -34,6 +34,7 @@ export interface UserProfile extends User {
 
 export interface UserStats {
 	totalMatches: number;
+	xp: number;
 	wins: number;
 	losses: number;
 	winRate: number;
@@ -225,10 +226,10 @@ export interface LadderEntry {
 	rank: number;
 	clanId: string;
 	clan: Clan;
-	rating: number;
+	xp: number;
+	matchesPlayed: number;
 	wins: number;
 	losses: number;
-	streak: number;           // Positive = win streak, negative = loss streak
 	lastMatchAt: number | null;
 }
 

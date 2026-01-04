@@ -136,11 +136,20 @@ export function getUserStats(userId: string): UserStats {
 		}
 	}
 	
+	const totalMatches = wins + losses;
+
+	// V0 XP model (transparent + easy to tune later)
+	// - Participation matters most: 100 XP per completed match
+	// - Small win bonus: +50 XP per win
+	// This is intentionally simple for launch and can be replaced by a richer XP system later.
+	const xp = (totalMatches * 100) + (wins * 50);
+
 	return {
-		totalMatches: wins + losses,
+		totalMatches,
+		xp,
 		wins,
 		losses,
-		winRate: wins + losses > 0 ? Math.round((wins / (wins + losses)) * 100) : 0,
+		winRate: totalMatches > 0 ? Math.round((wins / totalMatches) * 100) : 0,
 		beefWins,
 		beefLosses,
 		tournamentWins
@@ -613,45 +622,57 @@ export function getLadder(): LadderEntry[] {
 	const entries: LadderEntry[] = [];
 	
 	for (const clan of clans.values()) {
-		const rating = ladderRatings.get(clan.id) || 1500;
+		// XP Ladder (Launch V0)
+		// XP is intentionally simple + transparent:
+		//  - 100 XP per completed match
+		//  - +50 XP per win
+		//
+		// Note: In the current V0 scaffold, completed match tracking exists for Beef Matches.
+		// As additional match types are activated, they should also contribute to XP.
 		const clanBeefs = getBeefMatchesForClan(clan.id).filter(b => b.status === 'COMPLETED');
 		
-		let wins = 0, losses = 0, streak = 0, lastMatchAt: number | null = null;
+		let wins = 0;
+		let losses = 0;
+		let lastMatchAt: number | null = null;
 		
-		// Sort by completion time to calculate streak
+		// Sort by completion time so "last match" is correct
 		const sortedBeefs = clanBeefs.sort((a, b) => b.updatedAt - a.updatedAt);
 		
 		for (const beef of sortedBeefs) {
-			if (beef.winnerId === clan.id) {
-				wins++;
-				if (streak >= 0) streak++;
-				else streak = 1;
-			} else {
-				losses++;
-				if (streak <= 0) streak--;
-				else streak = -1;
-			}
+			if (beef.winnerId === clan.id) wins++;
+			else losses++;
 			if (!lastMatchAt) lastMatchAt = beef.updatedAt;
 		}
+		
+		const matchesPlayed = wins + losses;
+		const xp = (matchesPlayed * 100) + (wins * 50);
 		
 		entries.push({
 			rank: 0,
 			clanId: clan.id,
 			clan,
-			rating,
+			xp,
+			matchesPlayed,
 			wins,
 			losses,
-			streak,
 			lastMatchAt
 		});
 	}
 	
-	// Sort by rating and assign ranks
-	entries.sort((a, b) => b.rating - a.rating);
+	// Sort by XP, then by last activity, then by wins
+	entries.sort((a, b) => {
+		if (b.xp !== a.xp) return b.xp - a.xp;
+		const bt = b.lastMatchAt ?? 0;
+		const at = a.lastMatchAt ?? 0;
+		if (bt !== at) return bt - at;
+		return b.wins - a.wins;
+	});
 	entries.forEach((entry, i) => entry.rank = i + 1);
 	
 	return entries;
 }
+
+
 
 // ============================================
 // EXPORT STORE STATE (for debugging)
