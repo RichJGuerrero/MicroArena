@@ -12,7 +12,22 @@
 		<h1>⚖️ Integrity System</h1>
 		<p class="subtitle">Your reputation is your currency</p>
 	</div>
-	
+
+	<div class="card explainer">
+		<h2>How Integrity Works</h2>
+		<p class="text-secondary mt-sm">
+			Integrity is MicroArena’s trust score. It affects eligibility for competitive events and reflects how reliably you play within the rules.
+		</p>
+		<ul class="bullets mt-md">
+			<li><strong>Start at 100.</strong> Penalties apply for stalling, dispute abuse, no-shows, and other integrity violations.</li>
+			<li><strong>Tournament access is gated</strong> by Integrity thresholds (Open, Premier, Showcase).</li>
+			<li><strong>Cheating is a permanent ban</strong>, not an Integrity point deduction.</li>
+		</ul>
+		<p class="text-muted mt-md">
+			This system exists to protect competitors who show up, stream when required, and finish matches cleanly.
+		</p>
+	</div>
+
 	{#if $isAuthenticated && $currentUser}
 		<div class="your-integrity card accent">
 			<h3>Your Integrity</h3>
@@ -191,4 +206,16 @@
 		margin-bottom: var(--space-md);
 	}
 	.tier-req { font-family: var(--font-mono); font-size: 0.875rem; color: var(--text-muted); }
+
+
+	.explainer { margin-bottom: var(--space-2xl); }
+	.explainer h2 { font-size: 1.25rem; margin-bottom: var(--space-sm); }
+	.bullets {
+		margin: 0;
+		padding-left: 1.2rem;
+		display: grid;
+		gap: var(--space-sm);
+		color: var(--text-secondary);
+	}
+	.bullets li strong { color: var(--text-primary); }
 </style>

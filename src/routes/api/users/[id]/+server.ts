@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getUser, updateUser, getUserStats, getClan } from '$lib/server/store';
+import { getUser, updateUser, getUserStats, getClan, getRecentMatchesForUser } from '$lib/server/store';
 
 export const GET: RequestHandler = async ({ params }) => {
 	const user = getUser(params.id);
@@ -11,11 +11,13 @@ export const GET: RequestHandler = async ({ params }) => {
 	
 	const stats = getUserStats(user.id);
 	const clan = user.clanId ? getClan(user.clanId) : null;
+	const recentMatches = getRecentMatchesForUser(user.id, 5);
 	
 	return json({ 
 		user,
 		stats,
 		clan,
+		recentMatches,
 		isFounder: clan ? clan.founderId === user.id : false
 	});
 };

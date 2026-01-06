@@ -15,6 +15,8 @@
 	} from '$lib/auth';
 	import { getIntegrityLevel } from '$lib/types';
 	
+	let inviteCount = 0;
+	
 	onMount(async () => {
 		// Check if Auth0 is configured
 		const auth0Configured = import.meta.env.PUBLIC_AUTH0_DOMAIN && 
@@ -26,6 +28,7 @@
 			// Demo mode
 			await restoreDemoSession();
 		}
+		await loadInviteCount();
 	});
 	
 	function handleLogout() {
@@ -39,6 +42,25 @@
 		}
 	}
 	
+async function loadInviteCount() {
+	if (!$isAuthenticated || !$currentUser) {
+		inviteCount = 0;
+		return;
+	}
+	try {
+		const res = await fetch(`/api/invites?userId=${encodeURIComponent($currentUser.id)}`);
+		if (!res.ok) {
+			inviteCount = 0;
+			return;
+		}
+		const data = await res.json();
+		const invites = data.invites || [];
+		inviteCount = invites.filter((i: any) => i.status === 'PENDING').length;
+	} catch {
+		inviteCount = 0;
+	}
+}
+
 	// Track current route for nav highlighting
 	function isActive(path: string, currentPath: string): boolean {
 		// Exact match for home
@@ -51,6 +73,12 @@
 		
 		return false;
 	}
+
+$: if ($isAuthenticated && $currentUser) {
+	loadInviteCount();
+} else {
+	inviteCount = 0;
+}
 
 </script>
 
@@ -69,6 +97,15 @@
 					<a href="/clans" class:active={isActive('/clans', $page.url.pathname)}>Clans</a>
 					<a href="/ladder" class:active={isActive('/ladder', $page.url.pathname)}>Ladder</a>
 					<a href="/integrity" class:active={isActive('/integrity', $page.url.pathname)}>Integrity</a>
+
+					{#if $isAuthenticated}
+						<a href="/inbox" class:active={isActive('/inbox', $page.url.pathname)}>
+							Inbox
+							{#if inviteCount > 0}
+								<span class="nav-badge">{inviteCount}</span>
+							{/if}
+						</a>
+					{/if}
 				</div>
 				
 				<div class="nav-user">
@@ -187,6 +224,24 @@
 		color: var(--accent);
 		background: rgba(253, 90, 30, 0.1);
 	}
+
+
+.nav-badge {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 20px;
+	height: 20px;
+	padding: 0 6px;
+	margin-left: 8px;
+	border-radius: 999px;
+	background: rgba(253, 90, 30, 0.2);
+	color: var(--accent);
+	font-weight: 800;
+	font-size: 0.75rem;
+	line-height: 1;
+	border: 1px solid rgba(253, 90, 30, 0.25);
+}
 	
 	.nav-user {
 		display: flex;

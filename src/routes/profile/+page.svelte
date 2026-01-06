@@ -1,14 +1,36 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
-	import { isAuthenticated, currentUser, refreshUser } from '$lib/auth';
+	import { isAuthenticated, currentUser } from '$lib/auth';
 	import { getIntegrityLevel, getIntegrityLabel } from '$lib/types';
-	import type { Clan, UserStats } from '$lib/types';
+	import type { Clan, Match, MatchParticipant, UserStats } from '$lib/types';
 	
 	let clan: Clan | null = null;
 	let stats: UserStats | null = null;
+	let recentMatches: Match[] = [];
 	let isFounder = false;
 	let loading = true;
+
+	$: myClanId = clan?.id ?? null;
+
+	function formatPlayers(players?: MatchParticipant[]): string {
+		if (!players || players.length === 0) return 'TBD';
+		const names = players.map(p => p.username);
+		if (names.length <= 3) return names.join(', ');
+		return `${names.slice(0, 3).join(', ')} +${names.length - 3}`;
+	}
+
+	function getOutcome(m: Match): 'W' | 'L' | null {
+		if (!myClanId || !m.winnerId) return null;
+		return m.winnerId === myClanId ? 'W' : 'L';
+	}
+
+	// Competitive Overview (V0)
+	$: xp = stats?.xp ?? 0;
+	$: matchesPlayed = stats?.totalMatches ?? 0;
+	$: wins = stats?.wins ?? 0;
+	$: losses = stats?.losses ?? 0;
+	$: winRate = stats?.winRate ?? 0;
 	
 	$: if (!$isAuthenticated && !loading) {
 		goto('/login');
@@ -26,6 +48,7 @@
 				const data = await res.json();
 				clan = data.clan;
 				stats = data.stats;
+				recentMatches = data.recentMatches ?? [];
 				isFounder = data.isFounder;
 			}
 		} catch (e) {
@@ -57,6 +80,33 @@
 			</header>
 			
 			<section class="profile-section card">
+				<h2>Competitive Overview</h2>
+				<div class="overview-grid">
+					<div class="stat">
+						<span class="stat-value text-accent">{xp}</span>
+						<span class="stat-label">XP</span>
+					</div>
+					<div class="stat">
+						<span class="stat-value">{matchesPlayed}</span>
+						<span class="stat-label">Matches Played</span>
+					</div>
+					<div class="stat">
+						<span class="stat-value" style="color: var(--success)">{wins}</span>
+						<span class="stat-label">Wins</span>
+					</div>
+					<div class="stat">
+						<span class="stat-value" style="color: var(--error)">{losses}</span>
+						<span class="stat-label">Losses</span>
+					</div>
+					<div class="stat">
+						<span class="stat-value {getIntegrityLevel($currentUser.integrity)}">{$currentUser.integrity}</span>
+						<span class="stat-label">Integrity</span>
+					</div>
+				</div>
+				<p class="overview-subtext text-muted mt-sm">Win Rate: <span class="text-accent">{winRate}%</span></p>
+			</section>
+			
+			<section class="profile-section card">
 				<h2>Integrity</h2>
 				<div class="integrity-display">
 					<span class="integrity-score {getIntegrityLevel($currentUser.integrity)}">
@@ -78,6 +128,57 @@
 						Your tournament access is restricted
 					{/if}
 				</p>
+
+				<div class="integrity-explainer mt-md">
+					<p class="text-secondary">
+						Integrity impacts tournament eligibility and reflects reliable, good-faith play.
+					</p>
+					<ul class="bullets mt-sm">
+						<li>Stalling, dispute abuse, no-shows, and toxic conduct can lower Integrity.</li>
+						<li><strong>Cheating is a permanent ban</strong>, not a score penalty.</li>
+					</ul>
+					<a class="btn ghost sm mt-sm" href="/integrity">View Integrity System →</a>
+				</div>
+			</section>
+
+			<section class="profile-section card">
+				<h2>Recent Matches</h2>
+				{#if recentMatches.length === 0}
+					<p class="text-muted">No matches yet. Your first win starts with a Beef Match.</p>
+				{:else}
+					<div class="match-list">
+						{#each recentMatches as m (m.id)}
+							<div class="match-row">
+								<div class="match-top">
+									<div class="match-left">
+										{#if getOutcome(m) === 'W'}
+											<span class="badge success">W</span>
+										{:else if getOutcome(m) === 'L'}
+											<span class="badge error">L</span>
+										{:else}
+											<span class="badge">—</span>
+										{/if}
+										<span class="match-date text-muted">{m.completedAt ? new Date(m.completedAt).toLocaleDateString() : 'TBD'}</span>
+									</div>
+									<div class="match-score">
+										<span class="tag">{m.team1.tag}</span>
+										<span class="vs">vs</span>
+										<span class="tag">{m.team2.tag}</span>
+										{#if m.team1Score !== null && m.team2Score !== null}
+											<span class="score text-muted">{m.team1Score}-{m.team2Score}</span>
+										{/if}
+									</div>
+								</div>
+
+								<div class="match-players text-secondary">
+									<span class="players">{formatPlayers(m.team1Players)}</span>
+									<span class="vs">vs</span>
+									<span class="players">{formatPlayers(m.team2Players)}</span>
+								</div>
+							</div>
+						{/each}
+					</div>
+				{/if}
 			</section>
 			
 			<section class="profile-section card">
@@ -103,29 +204,7 @@
 				{/if}
 			</section>
 			
-			{#if stats}
-				<section class="profile-section card">
-					<h2>Stats</h2>
-					<div class="stats-grid">
-						<div class="stat">
-							<span class="stat-value">{stats.totalMatches}</span>
-							<span class="stat-label">Matches</span>
-						</div>
-						<div class="stat">
-							<span class="stat-value">{stats.wins}</span>
-							<span class="stat-label">Wins</span>
-						</div>
-						<div class="stat">
-							<span class="stat-value">{stats.losses}</span>
-							<span class="stat-label">Losses</span>
-						</div>
-						<div class="stat">
-							<span class="stat-value">{stats.winRate}%</span>
-							<span class="stat-label">Win Rate</span>
-						</div>
-					</div>
-				</section>
-			{/if}
+			
 			
 			{#if !clan}
 				<section class="profile-section card cta-section">
@@ -167,6 +246,82 @@
 	.profile-section h2 {
 		font-size: 1.125rem;
 		margin-bottom: var(--space-md);
+	}
+
+	.match-list {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-sm);
+	}
+
+	.match-row {
+		background: var(--bg-tertiary);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-md);
+		padding: var(--space-md);
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-xs);
+		transition: border-color 0.2s ease, background 0.2s ease;
+	}
+	.match-row:hover {
+		background: var(--bg-hover);
+		border-color: var(--border-light);
+	}
+
+	.match-top {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-md);
+		flex-wrap: wrap;
+	}
+
+	.match-left {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-sm);
+	}
+
+	.match-score {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-sm);
+		font-weight: 600;
+	}
+
+	.match-date {
+		font-size: 0.875rem;
+	}
+
+	.match-players {
+		display: flex;
+		align-items: center;
+		gap: var(--space-sm);
+		font-size: 0.875rem;
+		flex-wrap: wrap;
+	}
+
+	.players {
+		font-family: var(--font-mono);
+		font-size: 0.8125rem;
+		color: var(--text-secondary);
+	}
+
+	.score {
+		font-family: var(--font-mono);
+		font-weight: 700;
+		margin-left: var(--space-sm);
+	}
+
+	.overview-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+		gap: var(--space-lg);
+	}
+
+	.overview-subtext {
+		font-size: 0.9375rem;
 	}
 	
 	.integrity-display {
@@ -229,12 +384,6 @@
 		font-weight: 500;
 	}
 	
-	.stats-grid {
-		display: grid;
-		grid-template-columns: repeat(4, 1fr);
-		gap: var(--space-lg);
-	}
-	
 	.stat {
 		text-align: center;
 	}
@@ -244,7 +393,12 @@
 		font-size: 1.5rem;
 		font-weight: 700;
 		display: block;
+		line-height: 1.1;
 	}
+	.stat-value.high { color: var(--integrity-high); }
+	.stat-value.good { color: var(--integrity-good); }
+	.stat-value.medium { color: var(--integrity-medium); }
+	.stat-value.low { color: var(--integrity-low); }
 	
 	.stat-label {
 		font-size: 0.75rem;
@@ -257,6 +411,85 @@
 	
 	@media (max-width: 640px) {
 		.profile-identity { flex-direction: column; text-align: center; }
-		.stats-grid { grid-template-columns: repeat(2, 1fr); }
+		.overview-grid { grid-template-columns: repeat(2, 1fr); }
+	}
+
+
+	.integrity-explainer {
+		border-top: 1px solid var(--border);
+		padding-top: var(--space-md);
+	}
+
+	.bullets {
+		margin: 0;
+		padding-left: 1.2rem;
+		display: grid;
+		gap: var(--space-xs);
+		color: var(--text-secondary);
+	}
+	.bullets li strong { color: var(--text-primary); }
+
+	.match-list {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-sm);
+	}
+
+	.match-row {
+		background: var(--bg-tertiary);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-lg);
+		padding: var(--space-md);
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-xs);
+	}
+
+	.match-row:hover {
+		background: var(--bg-hover);
+		border-color: var(--border-light);
+	}
+
+	.match-top {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: var(--space-md);
+	}
+
+	.match-left {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-sm);
+	}
+
+	.match-score {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-sm);
+		font-weight: 700;
+	}
+
+	.score {
+		font-family: var(--font-mono);
+		margin-left: var(--space-xs);
+	}
+
+	.match-players {
+		display: flex;
+		align-items: center;
+		gap: var(--space-sm);
+		font-size: 0.9375rem;
+		flex-wrap: wrap;
+	}
+
+	.players {
+		font-family: var(--font-mono);
+		font-size: 0.875rem;
+	}
+
+	.vs {
+		color: var(--text-muted);
+		font-weight: 600;
 	}
 </style>

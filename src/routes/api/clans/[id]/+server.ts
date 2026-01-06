@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getClan, getClanByTag, getClanWithMembers, updateClan, getBeefMatchesForClan } from '$lib/server/store';
+import { getClan, getClanByTag, getClanWithMembers, updateClan, getBeefMatchesForClan, getClanStats, getRecentMatchesForClan } from '$lib/server/store';
 
 export const GET: RequestHandler = async ({ params }) => {
 	// Try to get by ID first, then by tag
@@ -22,8 +22,10 @@ export const GET: RequestHandler = async ({ params }) => {
 	
 	const clanWithMembers = getClanWithMembers(clanId);
 	const beefMatches = getBeefMatchesForClan(clanId);
+	const clanStats = getClanStats(clanId);
+	const recentMatches = getRecentMatchesForClan(clanId, 5);
 	
-	return json({ clan: clanWithMembers, beefMatches });
+	return json({ clan: clanWithMembers, beefMatches, clanStats, recentMatches });
 };
 
 export const PATCH: RequestHandler = async ({ params, request }) => {

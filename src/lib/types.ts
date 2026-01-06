@@ -34,6 +34,7 @@ export interface UserProfile extends User {
 
 export interface UserStats {
 	totalMatches: number;
+	xp: number;
 	wins: number;
 	losses: number;
 	winRate: number;
@@ -63,15 +64,47 @@ export interface ClanWithMembers extends Clan {
 	founder: ClanMember;
 }
 
+// Clan member roles (V0)
+export type ClanRole = 'FOUNDER' | 'LEADER' | 'SOLDIER';
+
 export interface ClanMember {
 	id: string;
 	username: string;
 	avatar: string | null;
 	integrity: number;
+	role: ClanRole;
 	isFounder: boolean;
 	joinedAt: number;
 }
 
+export interface ClanStats {
+	clanId: string;
+	xp: number;
+	matchesPlayed: number;
+	wins: number;
+	losses: number;
+	winRate: number;
+	lastMatchAt: number | null;
+}
+// ============================================
+// CLAN INVITE TYPES
+// ============================================
+export type ClanInviteStatus = 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'EXPIRED' | 'CANCELLED';
+
+export interface ClanInvite {
+	id: string;
+	clanId: string;
+	clanTag: string;
+	clanName: string;
+	inviterId: string;
+	inviterUsername: string;
+	inviteeId: string;
+	inviteeUsername: string;
+	status: ClanInviteStatus;
+	createdAt: number;
+	expiresAt: number;
+	respondedAt: number | null;
+}
 // ============================================
 // INTEGRITY TYPES
 // ============================================
@@ -128,6 +161,9 @@ export interface BeefMatch {
 	winnerId: string | null;   // Clan ID
 	challengerScore: number | null;
 	challengedScore: number | null;
+	// Optional participant tracking (future: recorded at match completion)
+	challengerPlayerIds?: string[];
+	challengedPlayerIds?: string[];
 	createdBy: string;         // User ID
 	createdAt: number;
 	updatedAt: number;
@@ -209,6 +245,11 @@ export interface Match {
 	team2Id: string;
 	team1: Clan;
 	team2: Clan;
+	// Optional participant info (used for match history UI)
+	team1PlayerIds?: string[];
+	team2PlayerIds?: string[];
+	team1Players?: MatchParticipant[];
+	team2Players?: MatchParticipant[];
 	team1Score: number | null;
 	team2Score: number | null;
 	winnerId: string | null;
@@ -218,6 +259,11 @@ export interface Match {
 	createdAt: number;
 }
 
+export interface MatchParticipant {
+	id: string;
+	username: string;
+}
+
 // ============================================
 // LADDER TYPES
 // ============================================
@@ -225,10 +271,10 @@ export interface LadderEntry {
 	rank: number;
 	clanId: string;
 	clan: Clan;
-	rating: number;
+	xp: number;
+	matchesPlayed: number;
 	wins: number;
 	losses: number;
-	streak: number;           // Positive = win streak, negative = loss streak
 	lastMatchAt: number | null;
 }
 
