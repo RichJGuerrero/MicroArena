@@ -198,10 +198,6 @@ export function getUserStats(userId: string): UserStats {
 			beefLosses++;
 		}
 	}
-<<<<<<< HEAD
-
-	const totalMatches = wins + losses;
-=======
 	
 	const totalMatches = wins + losses;
 
@@ -209,7 +205,6 @@ export function getUserStats(userId: string): UserStats {
 	// - Participation matters most: 100 XP per completed match
 	// - Small win bonus: +50 XP per win
 	// This is intentionally simple for launch and can be replaced by a richer XP system later.
->>>>>>> 4d8252957029e237254da5a505f314786ce78b55
 	const xp = (totalMatches * 100) + (wins * 50);
 
 	return {

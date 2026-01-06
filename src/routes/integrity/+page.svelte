@@ -27,11 +27,7 @@
 			This system exists to protect competitors who show up, stream when required, and finish matches cleanly.
 		</p>
 	</div>
-<<<<<<< HEAD
-
-=======
 	
->>>>>>> 4d8252957029e237254da5a505f314786ce78b55
 	{#if $isAuthenticated && $currentUser}
 		<div class="your-integrity card accent">
 			<h3>Your Integrity</h3>
@@ -282,10 +278,6 @@
 	}
 	.tier-req { font-family: var(--font-mono); font-size: 0.875rem; color: var(--text-muted); }
 
-<<<<<<< HEAD
-
-=======
->>>>>>> 4d8252957029e237254da5a505f314786ce78b55
 	.explainer { margin-bottom: var(--space-2xl); }
 	.explainer h2 { font-size: 1.25rem; margin-bottom: var(--space-sm); }
 	.bullets {
