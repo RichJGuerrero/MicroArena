@@ -4,7 +4,7 @@
 	import { goto } from '$app/navigation';
 	import { isAuthenticated, currentUser, refreshUser } from '$lib/auth';
 	import { getIntegrityLevel } from '$lib/types';
-	import type { BeefMatch, ClanRole, ClanStats, ClanWithMembers, Match, MatchParticipant } from '$lib/types';
+	import type { BeefMatch, ClanStats, ClanWithMembers, Match, MatchParticipant } from '$lib/types';
 	
 	let clan: ClanWithMembers | null = null;
 	let beefMatches: BeefMatch[] = [];
@@ -13,19 +13,11 @@
 	let loading = true;
 	let actionLoading = false;
 	let error = '';
-
-	let inviteUsername = '';
-	let inviteLoading = false;
-	let inviteSuccess = '';
-	let roleUpdating: Record<string, boolean> = {};
-	let kickUpdating: Record<string, boolean> = {};
 	
 	$: tag = $page.params.tag;
 	$: isInThisClan = $currentUser?.clanId === clan?.id;
 	$: isFounder = $currentUser?.id === clan?.founderId;
-	$: myRole = (clan?.members || []).find(m => m.id === $currentUser?.id)?.role as ClanRole | undefined;
-	$: canInvite = !!myRole && (myRole === 'FOUNDER' || myRole === 'LEADER');
-	$: canKick = !!myRole && (myRole === 'FOUNDER' || myRole === 'LEADER');
+	$: canJoin = $isAuthenticated && $currentUser && !$currentUser.clanId;
 
 	$: clanId = clan?.id ?? null;
 
@@ -71,104 +63,34 @@
 		}
 		loading = false;
 	}
-
-	// NOTE: Clan joining is invite-only in V0. Direct join is disabled.
 	
-	async function handleInvite() {
+	async function handleJoin() {
 		if (!$currentUser || !clan) return;
-		const username = inviteUsername.trim();
-		inviteSuccess = '';
-		if (!username) {
-			error = 'Enter a username to invite';
-			return;
-		}
 		error = '';
-		inviteLoading = true;
+		actionLoading = true;
+		
 		try {
-			const res = await fetch(`/api/clans/${clan.id}/invite`, {
+			const res = await fetch(`/api/clans/${clan.id}/join`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ inviterId: $currentUser.id, username })
+				body: JSON.stringify({ userId: $currentUser.id })
 			});
-			const data = await res.json();
+			
 			if (!res.ok) {
-				error = data.error || 'Failed to send invite';
-				inviteLoading = false;
+				const data = await res.json();
+				error = data.error || 'Failed to join';
+				actionLoading = false;
 				return;
 			}
-			inviteSuccess = `Invite sent to ${username}`;
-			inviteUsername = '';
-		} catch (e) {
-			error = 'Network error';
-		} finally {
-			inviteLoading = false;
-		}
-	}
-
-	function canKickMember(memberRole: ClanRole, memberId: string): boolean {
-		if (!isInThisClan) return false;
-		if (!myRole) return false;
-		if (memberId === $currentUser?.id) return false;
-		if (memberRole === 'FOUNDER') return false;
-		if (myRole === 'FOUNDER') return true;
-		// Leaders can only kick soldiers
-		return myRole === 'LEADER' && memberRole === 'SOLDIER';
-	}
-
-	async function handleKick(targetUserId: string, targetUsername: string) {
-		if (!$currentUser || !clan) return;
-		if (!confirm(`Kick ${targetUsername} from the clan?`)) return;
-		error = '';
-		kickUpdating = { ...kickUpdating, [targetUserId]: true };
-		try {
-			const res = await fetch(`/api/clans/${clan.id}/kick`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ actorId: $currentUser.id, targetUserId })
-			});
-			const data = await res.json();
-			if (!res.ok) {
-				error = data.error || 'Failed to kick member';
-				return;
-			}
+			
 			await refreshUser();
 			await loadClan();
 		} catch (e) {
 			error = 'Network error';
-		} finally {
-			kickUpdating = { ...kickUpdating, [targetUserId]: false };
 		}
+		actionLoading = false;
 	}
-
-	async function handleSetRole(targetUserId: string, role: ClanRole) {
-		if (!$currentUser || !clan) return;
-		error = '';
-		roleUpdating = { ...roleUpdating, [targetUserId]: true };
-		try {
-			const res = await fetch(`/api/clans/${clan.id}/set-role`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ actorId: $currentUser.id, targetUserId, role })
-			});
-			const data = await res.json();
-			if (!res.ok) {
-				error = data.error || 'Failed to set role';
-				return;
-			}
-			await loadClan();
-		} catch (e) {
-			error = 'Network error';
-		} finally {
-			roleUpdating = { ...roleUpdating, [targetUserId]: false };
-		}
-	}
-
-	function handleRoleSelectChange(targetUserId: string, e: Event) {
-		// Keep TS assertions inside <script lang="ts">.
-		const value = (e.currentTarget as HTMLSelectElement).value as ClanRole;
-		handleSetRole(targetUserId, value);
-	}
-
+	
 	async function handleLeave() {
 		if (!$currentUser || !clan) return;
 		
@@ -249,39 +171,21 @@
 					<p class="clan-description">{clan.description}</p>
 				{/if}
 				
-
-<div class="clan-actions">
-	{#if isInThisClan}
-		<button class="btn danger" on:click={handleLeave} disabled={actionLoading}>
-			{actionLoading ? 'Leaving...' : 'Leave Clan'}
-		</button>
-	{:else if !$isAuthenticated}
-		<a href="/login" class="btn">Login</a>
-	{:else}
-		<p class="text-muted">Invite-only clan. Check your <a href="/inbox">Inbox</a> for invitations.</p>
-	{/if}
-
-	{#if canInvite}
-		<div class="invite-box">
-			<label class="text-muted small" for="invite-username">Invite a user by username ({myRole === 'FOUNDER' ? 'founder' : 'leader'})</label>
-			<div class="invite-row">
-				<input
-					id="invite-username"
-					type="text"
-					placeholder="username"
-					bind:value={inviteUsername}
-					disabled={inviteLoading}
-				/>
-				<button class="btn sm" on:click={handleInvite} disabled={inviteLoading}>
-					{inviteLoading ? 'Sending...' : 'Send Invite'}
-				</button>
-			</div>
-			{#if inviteSuccess}
-				<div class="success-message mt-sm">{inviteSuccess}</div>
-			{/if}
-		</div>
-	{/if}
-</div>
+				<div class="clan-actions">
+					{#if canJoin}
+						<button on:click={handleJoin} disabled={actionLoading}>
+							{actionLoading ? 'Joining...' : 'Join Clan'}
+						</button>
+					{:else if isInThisClan}
+						<button class="btn danger" on:click={handleLeave} disabled={actionLoading}>
+							{actionLoading ? 'Leaving...' : 'Leave Clan'}
+						</button>
+					{:else if !$isAuthenticated}
+						<a href="/login" class="btn">Login to Join</a>
+					{:else if $currentUser?.clanId}
+						<p class="text-muted">You're already in a clan</p>
+					{/if}
+				</div>
 				
 				{#if error}
 					<div class="error-message mt-md">{error}</div>
@@ -369,45 +273,14 @@
 								<div class="avatar sm">{member.username.charAt(0)}</div>
 								<div>
 									<span class="member-name">{member.username}</span>
-									<div class="member-meta">
-										<span class="role-badge {member.role.toLowerCase()}">
-											{member.role === 'FOUNDER' ? 'Founder' : member.role === 'LEADER' ? 'Leader' : 'Soldier'}
-										</span>
-										{#if member.role === 'FOUNDER'}
-											<span class="founder-star">★</span>
-										{/if}
-									</div>
-								</div>
-							</div>
-							<div class="member-right">
-								<span class="integrity-badge {getIntegrityLevel(member.integrity)}">
-									{member.integrity}
-								</span>
-
-								<div class="member-controls">
-									{#if isInThisClan && myRole === 'FOUNDER' && member.role !== 'FOUNDER' && member.id !== $currentUser?.id}
-										<select
-											class="role-select"
-											value={member.role}
-											disabled={roleUpdating[member.id]}
-							on:change={(e) => handleRoleSelectChange(member.id, e)}
-										>
-											<option value="SOLDIER">Soldier</option>
-											<option value="LEADER">Leader</option>
-										</select>
-									{/if}
-
-									{#if canKickMember(member.role, member.id)}
-										<button
-											class="btn sm danger"
-											on:click={() => handleKick(member.id, member.username)}
-											disabled={kickUpdating[member.id]}
-										>
-											{kickUpdating[member.id] ? 'Kicking...' : 'Kick'}
-										</button>
+									{#if member.isFounder}
+										<span class="founder-badge">★ Founder</span>
 									{/if}
 								</div>
 							</div>
+							<span class="integrity-badge {getIntegrityLevel(member.integrity)}">
+								{member.integrity}
+							</span>
 						</div>
 					{/each}
 				</div>
@@ -603,54 +476,6 @@
 		font-weight: 500;
 		margin-right: var(--space-sm);
 	}
-
-	.member-meta {
-		display: flex;
-		align-items: center;
-		gap: var(--space-xs);
-		margin-top: 2px;
-	}
-
-	.role-badge {
-		font-size: 0.75rem;
-		padding: 2px 8px;
-		border-radius: 999px;
-		border: 1px solid var(--border);
-		color: var(--text-secondary);
-		background: rgba(255,255,255,0.02);
-	}
-	.role-badge.founder { border-color: rgba(255, 215, 0, 0.35); }
-	.role-badge.leader { border-color: rgba(99, 102, 241, 0.35); }
-	.role-badge.soldier { border-color: rgba(148, 163, 184, 0.35); }
-
-	.founder-star {
-		color: rgba(255, 215, 0, 0.9);
-		font-weight: 700;
-	}
-
-	.member-right {
-		display: flex;
-		flex-direction: column;
-		align-items: flex-end;
-		gap: var(--space-xs);
-	}
-
-	.member-controls {
-		display: flex;
-		gap: var(--space-xs);
-		align-items: center;
-		flex-wrap: wrap;
-		justify-content: flex-end;
-	}
-
-	.role-select {
-		padding: 6px 10px;
-		border-radius: var(--radius-md);
-		border: 1px solid var(--border);
-		background: var(--bg-secondary);
-		color: var(--text);
-		font-size: 0.875rem;
-	}
 	
 	.beef-list {
 		display: flex;
@@ -680,32 +505,6 @@
 		display: inline-block;
 		margin-top: var(--space-lg);
 	}
-
-
-.invite-box {
-	margin-top: var(--space-md);
-	padding: var(--space-md);
-	border: 1px solid var(--border);
-	border-radius: var(--radius-md);
-	background: var(--bg-secondary);
-}
-
-.invite-row {
-	display: flex;
-	gap: var(--space-sm);
-	margin-top: var(--space-sm);
-	flex-wrap: wrap;
-}
-
-.invite-row input {
-	flex: 1;
-	min-width: 180px;
-}
-
-.success-message {
-	color: var(--success);
-	font-weight: 600;
-}
 	
 	@media (max-width: 640px) {
 		.header-content { flex-direction: column; }

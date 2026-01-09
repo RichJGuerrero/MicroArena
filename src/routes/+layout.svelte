@@ -15,8 +15,6 @@
 	} from '$lib/auth';
 	import { getIntegrityLevel } from '$lib/types';
 	
-	let inviteCount = 0;
-	
 	onMount(async () => {
 		// Check if Auth0 is configured
 		const auth0Configured = import.meta.env.PUBLIC_AUTH0_DOMAIN && 
@@ -28,7 +26,6 @@
 			// Demo mode
 			await restoreDemoSession();
 		}
-		await loadInviteCount();
 	});
 	
 	function handleLogout() {
@@ -42,25 +39,6 @@
 		}
 	}
 	
-async function loadInviteCount() {
-	if (!$isAuthenticated || !$currentUser) {
-		inviteCount = 0;
-		return;
-	}
-	try {
-		const res = await fetch(`/api/invites?userId=${encodeURIComponent($currentUser.id)}`);
-		if (!res.ok) {
-			inviteCount = 0;
-			return;
-		}
-		const data = await res.json();
-		const invites = data.invites || [];
-		inviteCount = invites.filter((i: any) => i.status === 'PENDING').length;
-	} catch {
-		inviteCount = 0;
-	}
-}
-
 	// Track current route for nav highlighting
 	function isActive(path: string, currentPath: string): boolean {
 		// Exact match for home
@@ -74,20 +52,15 @@ async function loadInviteCount() {
 		return false;
 	}
 
-$: if ($isAuthenticated && $currentUser) {
-	loadInviteCount();
-} else {
-	inviteCount = 0;
-}
-
 </script>
 
 <div class="app">
+	<!-- Subtle site-wide watermark (official MicroArena logo). Kept behind all content. -->
+	<div class="site-watermark" aria-hidden="true"></div>
 	<header class="nav-header">
 		<div class="container">
 			<nav class="nav">
 				<a href="/" class="logo">
-					<span class="logo-icon">🏟️</span>
 					<span class="logo-text">MicroArena</span>
 				</a>
 				
@@ -97,15 +70,6 @@ $: if ($isAuthenticated && $currentUser) {
 					<a href="/clans" class:active={isActive('/clans', $page.url.pathname)}>Clans</a>
 					<a href="/ladder" class:active={isActive('/ladder', $page.url.pathname)}>Ladder</a>
 					<a href="/integrity" class:active={isActive('/integrity', $page.url.pathname)}>Integrity</a>
-
-					{#if $isAuthenticated}
-						<a href="/inbox" class:active={isActive('/inbox', $page.url.pathname)}>
-							Inbox
-							{#if inviteCount > 0}
-								<span class="nav-badge">{inviteCount}</span>
-							{/if}
-						</a>
-					{/if}
 				</div>
 				
 				<div class="nav-user">
@@ -137,7 +101,7 @@ $: if ($isAuthenticated && $currentUser) {
 		<div class="container">
 			<div class="footer-content">
 				<div class="footer-brand">
-					<span class="footer-logo">🏟️ MicroArena</span>
+					<span class="footer-logo">MicroArena</span>
 					<p>Integrity-First Competitive Gaming</p>
 				</div>
 				<div class="footer-links">
@@ -166,6 +130,20 @@ $: if ($isAuthenticated && $currentUser) {
 		display: flex;
 		flex-direction: column;
 		min-height: 100vh;
+		position: relative;
+	}
+
+	.site-watermark {
+		position: fixed;
+		inset: 0;
+		pointer-events: none;
+		z-index: 0;
+		background-image: url('/MicroArena Logo.png');
+		background-repeat: no-repeat;
+		background-position: center 120px;
+		background-size: min(980px, 85vw);
+		opacity: 1.00;
+		filter: saturate(1.05) contrast(1.05);
 	}
 	
 	.nav-header {
@@ -224,24 +202,6 @@ $: if ($isAuthenticated && $currentUser) {
 		color: var(--accent);
 		background: rgba(253, 90, 30, 0.1);
 	}
-
-
-.nav-badge {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	min-width: 20px;
-	height: 20px;
-	padding: 0 6px;
-	margin-left: 8px;
-	border-radius: 999px;
-	background: rgba(253, 90, 30, 0.2);
-	color: var(--accent);
-	font-weight: 800;
-	font-size: 0.75rem;
-	line-height: 1;
-	border: 1px solid rgba(253, 90, 30, 0.25);
-}
 	
 	.nav-user {
 		display: flex;
@@ -291,13 +251,27 @@ $: if ($isAuthenticated && $currentUser) {
 	.user-integrity.medium { color: var(--integrity-medium); }
 	.user-integrity.low { color: var(--integrity-low); }
 	
-	.main { flex: 1; }
+	.main {
+		flex: 1;
+		position: relative;
+		z-index: 1;
+	}
 	
 	.footer {
 		background: var(--bg-secondary);
 		border-top: 1px solid var(--border);
 		padding: var(--space-3xl) 0 var(--space-xl);
 		margin-top: var(--space-3xl);
+		position: relative;
+		z-index: 1;
+	}
+
+	@media (max-width: 640px) {
+		.site-watermark {
+			background-position: center 90px;
+			background-size: min(720px, 92vw);
+			opacity: 1.00;
+		}
 	}
 	
 	.footer-content {

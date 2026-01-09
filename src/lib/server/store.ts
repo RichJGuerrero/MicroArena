@@ -6,7 +6,6 @@ import type {
 	Clan,
 	ClanWithMembers,
 	ClanMember,
-	ClanRole,
 	IntegrityEvent,
 	BeefMatch,
 	Tournament,
@@ -15,8 +14,7 @@ import type {
 	LadderEntry,
 	UserStats,
 	ClanStats,
-	MatchParticipant,
-	ClanInvite
+	MatchParticipant
 } from '$lib/types';
 
 // ============================================
@@ -25,7 +23,6 @@ import type {
 const users = new Map<string, User>();
 const clans = new Map<string, Clan>();
 const clanMembers = new Map<string, Set<string>>(); // clanId -> Set of userIds
-const clanRoles = new Map<string, Map<string, ClanRole>>(); // clanId -> (userId -> role)
 const integrityEvents = new Map<string, IntegrityEvent>();
 const beefMatches = new Map<string, BeefMatch>();
 const tournaments = new Map<string, Tournament>();
@@ -33,52 +30,11 @@ const tournamentTeams = new Map<string, Map<string, TournamentTeam>>(); // tourn
 const matches = new Map<string, Match>();
 const ladderRatings = new Map<string, number>(); // clanId -> rating
 
-// Clan invites (invite-only clans)
-const clanInvites = new Map<string, ClanInvite>();
-
 // ============================================
 // ID GENERATION
 // ============================================
 export function generateId(): string {
 	return `${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 11)}`;
-}
-
-// ============================================
-// CLAN ROLE HELPERS
-// ============================================
-function getRoleMap(clanId: string): Map<string, ClanRole> {
-	const existing = clanRoles.get(clanId);
-	if (existing) return existing;
-	const created = new Map<string, ClanRole>();
-	clanRoles.set(clanId, created);
-	return created;
-}
-
-export function getClanRole(clanId: string, userId: string): ClanRole {
-	const clan = clans.get(clanId);
-	if (!clan) return 'SOLDIER';
-	// Founder is always founder, even if role map is missing
-	if (clan.founderId === userId) return 'FOUNDER';
-	const role = clanRoles.get(clanId)?.get(userId);
-	return role ?? 'SOLDIER';
-}
-
-function canInvite(role: ClanRole): boolean {
-	return role === 'FOUNDER' || role === 'LEADER';
-}
-
-function canKick(role: ClanRole): boolean {
-	return role === 'FOUNDER' || role === 'LEADER';
-}
-
-function setClanRole(clanId: string, userId: string, role: ClanRole): void {
-	const roles = getRoleMap(clanId);
-	roles.set(userId, role);
-}
-
-function removeClanRole(clanId: string, userId: string): void {
-	const roles = clanRoles.get(clanId);
-	roles?.delete(userId);
 }
 
 // ============================================
@@ -198,13 +154,8 @@ export function getUserStats(userId: string): UserStats {
 			beefLosses++;
 		}
 	}
-	
-	const totalMatches = wins + losses;
 
-	// V0 XP model (transparent + easy to tune later)
-	// - Participation matters most: 100 XP per completed match
-	// - Small win bonus: +50 XP per win
-	// This is intentionally simple for launch and can be replaced by a richer XP system later.
+	const totalMatches = wins + losses;
 	const xp = (totalMatches * 100) + (wins * 50);
 
 	return {
@@ -257,7 +208,6 @@ export function createClan(data: {
 	
 	clans.set(clan.id, clan);
 	clanMembers.set(clan.id, new Set([data.founderId]));
-	clanRoles.set(clan.id, new Map([[data.founderId, 'FOUNDER']]));
 	
 	// Update founder's clanId
 	updateUser(data.founderId, { clanId: clan.id });
@@ -297,7 +247,6 @@ export function getClanWithMembers(clanId: string): ClanWithMembers | null {
 			username: user.username,
 			avatar: user.avatar,
 			integrity: user.integrity,
-			role: getClanRole(clanId, user.id),
 			isFounder: user.id === clan.founderId,
 			joinedAt: user.updatedAt // Approximation
 		};
@@ -313,7 +262,6 @@ export function getClanWithMembers(clanId: string): ClanWithMembers | null {
 			username: 'Unknown',
 			avatar: null,
 			integrity: 100,
-			role: 'FOUNDER',
 			isFounder: true,
 			joinedAt: clan.createdAt
 		};
@@ -337,7 +285,6 @@ export function joinClan(clanId: string, userId: string): Clan {
 	const members = clanMembers.get(clanId) || new Set();
 	members.add(userId);
 	clanMembers.set(clanId, members);
-	setClanRole(clanId, userId, 'SOLDIER');
 	
 	// Update user
 	updateUser(userId, { clanId });
@@ -358,7 +305,6 @@ export function leaveClan(clanId: string, userId: string): { disbanded: boolean 
 	
 	const members = clanMembers.get(clanId) || new Set();
 	members.delete(userId);
-	removeClanRole(clanId, userId);
 	
 	// Update user
 	updateUser(userId, { clanId: null });
@@ -367,7 +313,6 @@ export function leaveClan(clanId: string, userId: string): { disbanded: boolean 
 	if (clan.founderId === userId && members.size > 0) {
 		const newFounder = Array.from(members)[0];
 		clan.founderId = newFounder;
-		setClanRole(clanId, newFounder, 'FOUNDER');
 		clan.updatedAt = Date.now();
 		clans.set(clanId, clan);
 	}
@@ -376,7 +321,6 @@ export function leaveClan(clanId: string, userId: string): { disbanded: boolean 
 	if (members.size === 0) {
 		clans.delete(clanId);
 		clanMembers.delete(clanId);
-		clanRoles.delete(clanId);
 		ladderRatings.delete(clanId);
 		return { disbanded: true };
 	}
@@ -385,214 +329,6 @@ export function leaveClan(clanId: string, userId: string): { disbanded: boolean 
 	recalculateClanIntegrity(clanId);
 	
 	return { disbanded: false };
-}
-
-// ============================================
-// CLAN MEMBER MANAGEMENT (ROLES + KICK)
-// ============================================
-export function setClanMemberRole(data: {
-	clanId: string;
-	actorId: string;
-	targetUserId: string;
-	role: 'LEADER' | 'SOLDIER';
-}): { clanId: string; targetUserId: string; role: ClanRole } {
-	const clan = clans.get(data.clanId);
-	if (!clan) throw new Error('Clan not found');
-
-	const actor = users.get(data.actorId);
-	if (!actor) throw new Error('Actor not found');
-	if (actor.clanId !== clan.id) throw new Error('You are not in this clan');
-
-	const actorRole = getClanRole(clan.id, actor.id);
-	if (actorRole !== 'FOUNDER') throw new Error('Only the clan founder can manage roles');
-
-	const members = clanMembers.get(clan.id);
-	if (!members || !members.has(data.targetUserId)) throw new Error('Target is not in this clan');
-	if (data.targetUserId === clan.founderId) throw new Error('You cannot change the founder role');
-
-	setClanRole(clan.id, data.targetUserId, data.role);
-	return { clanId: clan.id, targetUserId: data.targetUserId, role: data.role };
-}
-
-export function kickClanMember(data: {
-	clanId: string;
-	actorId: string;
-	targetUserId: string;
-}): { clanId: string; targetUserId: string } {
-	const clan = clans.get(data.clanId);
-	if (!clan) throw new Error('Clan not found');
-
-	const actor = users.get(data.actorId);
-	if (!actor) throw new Error('Actor not found');
-	if (actor.clanId !== clan.id) throw new Error('You are not in this clan');
-
-	const target = users.get(data.targetUserId);
-	if (!target) throw new Error('Target not found');
-	if (target.clanId !== clan.id) throw new Error('Target is not in this clan');
-
-	if (data.actorId === data.targetUserId) throw new Error('You cannot kick yourself');
-	if (data.targetUserId === clan.founderId) throw new Error('You cannot kick the founder');
-
-	const actorRole = getClanRole(clan.id, actor.id);
-	if (!canKick(actorRole)) throw new Error('Not authorized');
-
-	const targetRole = getClanRole(clan.id, target.id);
-	if (actorRole === 'LEADER' && targetRole !== 'SOLDIER') {
-		throw new Error('Leaders can only kick soldiers');
-	}
-
-	const members = clanMembers.get(clan.id) || new Set();
-	members.delete(target.id);
-	clanMembers.set(clan.id, members);
-	removeClanRole(clan.id, target.id);
-	updateUser(target.id, { clanId: null });
-
-	// If no members left, disband clan (rare, but handle)
-	if (members.size === 0) {
-		clans.delete(clan.id);
-		clanMembers.delete(clan.id);
-		clanRoles.delete(clan.id);
-		ladderRatings.delete(clan.id);
-		return { clanId: clan.id, targetUserId: target.id };
-	}
-
-	recalculateClanIntegrity(clan.id);
-	return { clanId: clan.id, targetUserId: target.id };
-}
-
-// ============================================
-// CLAN INVITE OPERATIONS
-// ============================================
-const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
-
-function expireInvitesForUser(userId: string): void {
-	const now = Date.now();
-	for (const inv of clanInvites.values()) {
-		if (inv.inviteeId !== userId) continue;
-		if (inv.status !== 'PENDING') continue;
-		if (inv.expiresAt <= now) {
-			clanInvites.set(inv.id, { ...inv, status: 'EXPIRED', respondedAt: now });
-		}
-	}
-}
-
-export function createClanInvite(data: {
-	clanId: string;
-	inviterId: string;
-	inviteeUsername: string;
-}): ClanInvite {
-	const clan = clans.get(data.clanId);
-	if (!clan) throw new Error('Clan not found');
-
-	const inviter = users.get(data.inviterId);
-	if (!inviter) throw new Error('Inviter not found');
-	if (inviter.clanId !== clan.id) throw new Error('You can only invite from your own clan');
-
-	// V0 permissions: founder-only (officers can be added later)
-	const inviterRole = getClanRole(clan.id, inviter.id);
-	if (!canInvite(inviterRole)) {
-		throw new Error('Only clan founders or leaders can invite members');
-	}
-
-	const invitee = getUserByUsername(data.inviteeUsername);
-	if (!invitee) throw new Error('User not found');
-	if (invitee.clanId) throw new Error('User is already in a clan');
-
-	// Expire old invites for this user first
-	expireInvitesForUser(invitee.id);
-
-	// Prevent duplicate pending invites to the same clan
-	for (const inv of clanInvites.values()) {
-		if (inv.inviteeId === invitee.id && inv.clanId === clan.id && inv.status === 'PENDING') {
-			throw new Error('User already has a pending invite to this clan');
-		}
-	}
-
-	const now = Date.now();
-	const invite: ClanInvite = {
-		id: generateId(),
-		clanId: clan.id,
-		clanTag: clan.tag,
-		clanName: clan.name,
-		inviterId: inviter.id,
-		inviterUsername: inviter.username,
-		inviteeId: invitee.id,
-		inviteeUsername: invitee.username,
-		status: 'PENDING',
-		createdAt: now,
-		expiresAt: now + INVITE_TTL_MS,
-		respondedAt: null
-	};
-
-	clanInvites.set(invite.id, invite);
-	return invite;
-}
-
-export function getInvitesForUser(userId: string): ClanInvite[] {
-	expireInvitesForUser(userId);
-	const now = Date.now();
-
-	return Array.from(clanInvites.values())
-		.filter(i => i.inviteeId === userId)
-		// Hide cancelled invites after a while could be added later; for now return all non-null
-		.sort((a, b) => b.createdAt - a.createdAt)
-		.map(i => {
-			// Ensure clanTag/clanName stay up to date if the clan still exists
-			const clan = clans.get(i.clanId);
-			if (!clan) return i;
-			if (i.clanTag === clan.tag && i.clanName === clan.name) return i;
-			return { ...i, clanTag: clan.tag, clanName: clan.name };
-		});
-}
-
-export function respondToClanInvite(data: {
-	inviteId: string;
-	userId: string;
-	accept: boolean;
-}): ClanInvite {
-	const inv = clanInvites.get(data.inviteId);
-	if (!inv) throw new Error('Invite not found');
-
-	expireInvitesForUser(inv.inviteeId);
-	const refreshed = clanInvites.get(data.inviteId);
-	if (!refreshed) throw new Error('Invite not found');
-
-	if (refreshed.inviteeId !== data.userId) throw new Error('Not authorized');
-	if (refreshed.status !== 'PENDING') throw new Error('Invite is no longer active');
-	if (refreshed.expiresAt <= Date.now()) {
-		clanInvites.set(refreshed.id, { ...refreshed, status: 'EXPIRED', respondedAt: Date.now() });
-		throw new Error('Invite expired');
-	}
-
-	const user = users.get(data.userId);
-	if (!user) throw new Error('User not found');
-
-	const now = Date.now();
-
-	if (data.accept) {
-		if (user.clanId) throw new Error('You are already in a clan');
-
-		// Accept invite and join clan
-		joinClan(refreshed.clanId, user.id);
-
-		// Mark accepted
-		const accepted: ClanInvite = { ...refreshed, status: 'ACCEPTED', respondedAt: now };
-		clanInvites.set(refreshed.id, accepted);
-
-		// Cancel all other pending invites for this user
-		for (const other of clanInvites.values()) {
-			if (other.id === accepted.id) continue;
-			if (other.inviteeId !== user.id) continue;
-			if (other.status !== 'PENDING') continue;
-			clanInvites.set(other.id, { ...other, status: 'CANCELLED', respondedAt: now });
-		}
-
-		return accepted;
-	}
-
-	const declined: ClanInvite = { ...refreshed, status: 'DECLINED', respondedAt: now };
-	clanInvites.set(refreshed.id, declined);
-	return declined;
 }
 
 export function updateClan(clanId: string, data: Partial<Clan>): Clan | null {

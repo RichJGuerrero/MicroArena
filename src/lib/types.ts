@@ -64,15 +64,11 @@ export interface ClanWithMembers extends Clan {
 	founder: ClanMember;
 }
 
-// Clan member roles (V0)
-export type ClanRole = 'FOUNDER' | 'LEADER' | 'SOLDIER';
-
 export interface ClanMember {
 	id: string;
 	username: string;
 	avatar: string | null;
 	integrity: number;
-	role: ClanRole;
 	isFounder: boolean;
 	joinedAt: number;
 }
@@ -86,25 +82,7 @@ export interface ClanStats {
 	winRate: number;
 	lastMatchAt: number | null;
 }
-// ============================================
-// CLAN INVITE TYPES
-// ============================================
-export type ClanInviteStatus = 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'EXPIRED' | 'CANCELLED';
 
-export interface ClanInvite {
-	id: string;
-	clanId: string;
-	clanTag: string;
-	clanName: string;
-	inviterId: string;
-	inviterUsername: string;
-	inviteeId: string;
-	inviteeUsername: string;
-	status: ClanInviteStatus;
-	createdAt: number;
-	expiresAt: number;
-	respondedAt: number | null;
-}
 // ============================================
 // INTEGRITY TYPES
 // ============================================

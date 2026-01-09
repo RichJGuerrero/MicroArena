@@ -60,31 +60,17 @@ body {
 	/*
 		Global “Arena Glow” background
 		- Keeps the Giants black base
-		- Adds subtle orange atmosphere + faint grid so non-home pages don’t feel flat
+		- Adds subtle orange atmosphere (no grid)
 		- Home page still has its own hero glow on top
 	*/
 	background-color: var(--bg-primary);
 	background-image:
 		radial-gradient(ellipse at 30% 10%, rgba(253, 90, 30, 0.10) 0%, transparent 55%),
 		radial-gradient(ellipse at 80% 85%, rgba(253, 90, 30, 0.06) 0%, transparent 60%),
-		radial-gradient(ellipse at 50% 120%, rgba(255, 255, 255, 0.03) 0%, transparent 55%),
-		repeating-linear-gradient(
-			0deg,
-			rgba(255, 255, 255, 0.018) 0,
-			rgba(255, 255, 255, 0.018) 1px,
-			transparent 1px,
-			transparent 72px
-		),
-		repeating-linear-gradient(
-			90deg,
-			rgba(255, 255, 255, 0.012) 0,
-			rgba(255, 255, 255, 0.012) 1px,
-			transparent 1px,
-			transparent 72px
-		);
+		radial-gradient(ellipse at 50% 120%, rgba(255, 255, 255, 0.03) 0%, transparent 55%);
 	background-attachment: fixed;
-	background-repeat: no-repeat, no-repeat, no-repeat, repeat, repeat;
-	background-size: auto, auto, auto, auto, auto;
+	background-repeat: no-repeat, no-repeat, no-repeat;
+	background-size: auto, auto, auto;
 	color: var(--text-primary);
 	line-height: 1.6;
 	min-height: 100vh;
