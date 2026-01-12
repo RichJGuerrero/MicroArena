@@ -32,12 +32,23 @@ export interface UserProfile extends User {
 	recentMatches: Match[];
 }
 
-export interface UserStats {
-	totalMatches: number;
+export interface RecordLine {
+	matchesPlayed: number;
 	xp: number;
 	wins: number;
 	losses: number;
 	winRate: number;
+}
+
+export interface UserStats {
+	/** Combined totals across solo + clan */
+	overall: RecordLine;
+	/** 1v1 / solo play (does NOT affect clan stats) */
+	solo: RecordLine;
+	/** Clan/team play (2v2+) */
+	clan: RecordLine;
+
+	// V0 compatibility / future placeholders
 	beefWins: number;
 	beefLosses: number;
 	tournamentWins: number;
@@ -126,6 +137,8 @@ export type BeefStatus =
 export interface BeefMatch {
 	id: string;
 	format: BeefFormat;
+	/** Ranked or Unranked queue (defaults to RANKED if omitted). */
+	queue?: MatchQueue;
 	challengerClanId: string;
 	challengedClanId: string;
 	challengerClan?: Clan;
@@ -215,8 +228,21 @@ export interface TournamentMatch {
 export type MatchType = 'BEEF' | 'TOURNAMENT' | 'LADDER';
 export type MatchStatus = 'SCHEDULED' | 'LIVE' | 'COMPLETED' | 'DISPUTED' | 'CANCELLED';
 
+// A match can either be played under a clan banner (counts for clan stats)
+// or as a pure player/solo match (does NOT affect clan stats).
+export type MatchScope = 'CLAN' | 'PLAYER';
+
+// Ranked matches affect ladders/XP; Unranked matches are for practice/fun.
+export type MatchQueue = 'RANKED' | 'UNRANKED';
+
 export interface Match {
 	id: string;
+	/** CLAN matches count for clan stats, PLAYER matches do not. */
+	scope: MatchScope;
+	/** Display format (1v1, 2v2, etc). */
+	format: BeefFormat;
+	/** Ranked or Unranked queue. */
+	queue: MatchQueue;
 	type: MatchType;
 	referenceId: string;      // BeefMatch ID or Tournament ID
 	team1Id: string;

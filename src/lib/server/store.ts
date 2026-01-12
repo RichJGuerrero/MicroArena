@@ -11,6 +11,7 @@ import type {
 	Tournament,
 	TournamentTeam,
 	Match,
+	MatchQueue,
 	LadderEntry,
 	UserStats,
 	ClanStats,
@@ -114,56 +115,87 @@ export function getAllUsers(): User[] {
 }
 
 export function getUserStats(userId: string): UserStats {
+	const empty = (): { matchesPlayed: number; xp: number; wins: number; losses: number; winRate: number } => ({
+		matchesPlayed: 0,
+		xp: 0,
+		wins: 0,
+		losses: 0,
+		winRate: 0
+	});
+
 	const user = users.get(userId);
-	if (!user || !user.clanId) {
+	if (!user) {
 		return {
-			totalMatches: 0,
-			xp: 0,
-			wins: 0,
-			losses: 0,
-			winRate: 0,
+			overall: empty(),
+			solo: empty(),
+			clan: empty(),
 			beefWins: 0,
 			beefLosses: 0,
 			tournamentWins: 0
 		};
 	}
 
-	// Launch V0: Stats are derived from completed Beef Matches.
-	// If participant tracking is present, only count matches the user actually played.
-	const clanBeefs = getBeefMatchesForClan(user.clanId).filter(b => b.status === 'COMPLETED');
+	// V0: "Solo" matches are not implemented yet (future queue / direct challenge).
+	// We still return a dedicated bucket so UI + future features don't mix solo into clan stats.
+	const solo = empty();
 
-	let wins = 0;
-	let losses = 0;
+	// Clan/team stats are derived from completed Beef Matches in the user's current clan.
+	// IMPORTANT: 1v1 is treated as SOLO-only and does not affect clan stats.
+	let clanWins = 0;
+	let clanLosses = 0;
 	let beefWins = 0;
 	let beefLosses = 0;
 	let tournamentWins = 0;
 
-	for (const beef of clanBeefs) {
-		const p1 = beef.challengerPlayerIds ?? [];
-		const p2 = beef.challengedPlayerIds ?? [];
-		const hasRoster = p1.length > 0 || p2.length > 0;
-		const played = !hasRoster || p1.includes(userId) || p2.includes(userId);
-		if (!played) continue;
+	if (user.clanId) {
+		const clanBeefs = getBeefMatchesForClan(user.clanId)
+			.filter((b) => b.status === 'COMPLETED')
+			.filter((b) => b.format !== '1v1');
 
-		const won = beef.winnerId === user.clanId;
-		if (won) {
-			wins++;
-			beefWins++;
-		} else {
-			losses++;
-			beefLosses++;
+		for (const beef of clanBeefs) {
+			const p1 = beef.challengerPlayerIds ?? [];
+			const p2 = beef.challengedPlayerIds ?? [];
+			const hasRoster = p1.length > 0 || p2.length > 0;
+			const played = !hasRoster || p1.includes(userId) || p2.includes(userId);
+			if (!played) continue;
+
+			const won = beef.winnerId === user.clanId;
+			if (won) {
+				clanWins++;
+				beefWins++;
+			} else {
+				clanLosses++;
+				beefLosses++;
+			}
 		}
 	}
 
-	const totalMatches = wins + losses;
-	const xp = (totalMatches * 100) + (wins * 50);
+	const clanMatchesPlayed = clanWins + clanLosses;
+	const clanXp = (clanMatchesPlayed * 100) + (clanWins * 50);
+	const clan = {
+		matchesPlayed: clanMatchesPlayed,
+		xp: clanXp,
+		wins: clanWins,
+		losses: clanLosses,
+		winRate: clanMatchesPlayed > 0 ? Math.round((clanWins / clanMatchesPlayed) * 100) : 0
+	};
+
+	const overallMatchesPlayed = solo.matchesPlayed + clan.matchesPlayed;
+	const overallWins = solo.wins + clan.wins;
+	const overallLosses = solo.losses + clan.losses;
+	const overallXp = solo.xp + clan.xp;
+	const overall = {
+		matchesPlayed: overallMatchesPlayed,
+		xp: overallXp,
+		wins: overallWins,
+		losses: overallLosses,
+		winRate: overallMatchesPlayed > 0 ? Math.round((overallWins / overallMatchesPlayed) * 100) : 0
+	};
 
 	return {
-		totalMatches,
-		xp,
-		wins,
-		losses,
-		winRate: totalMatches > 0 ? Math.round((wins / totalMatches) * 100) : 0,
+		overall,
+		solo,
+		clan,
 		beefWins,
 		beefLosses,
 		tournamentWins
@@ -422,6 +454,8 @@ export function createBeefMatch(data: {
 	scheduledTime?: number;
 	refRequired?: boolean;
 	streamRequired?: boolean;
+	// Ranked or Unranked queue (defaults to RANKED)
+	queue?: MatchQueue;
 	createdBy: string;
 }): BeefMatch {
 	const challenger = clans.get(data.challengerClanId);
@@ -436,6 +470,7 @@ export function createBeefMatch(data: {
 	const beef: BeefMatch = {
 		id: generateId(),
 		format: data.format,
+		queue: data.queue ?? 'RANKED',
 		challengerClanId: data.challengerClanId,
 		challengedClanId: data.challengedClanId,
 		ruleset: data.ruleset,
@@ -583,6 +618,9 @@ function beefToMatch(beef: BeefMatch): Match {
 
 	return {
 		id: beef.id,
+		scope: 'CLAN',
+		format: beef.format,
+		queue: (beef.queue ?? 'RANKED'),
 		type: 'BEEF',
 		referenceId: beef.id,
 		team1Id: beef.challengerClanId,
@@ -606,6 +644,8 @@ function beefToMatch(beef: BeefMatch): Match {
 export function getRecentMatchesForClan(clanId: string, limit = 5): Match[] {
 	const completed = getBeefMatchesForClan(clanId)
 		.filter(b => b.status === 'COMPLETED')
+		// 1v1 is treated as solo play and should not appear in clan match history.
+		.filter(b => b.format !== '1v1')
 		.sort((a, b) => b.updatedAt - a.updatedAt)
 		.slice(0, Math.max(0, limit));
 	return completed.map(beefToMatch);
@@ -627,6 +667,8 @@ export function getRecentMatchesForUser(userId: string, limit = 5): Match[] {
 export function getClanStats(clanId: string): ClanStats {
 	const completed = getBeefMatchesForClan(clanId)
 		.filter(b => b.status === 'COMPLETED')
+		// 1v1 is a solo format and does not count toward clan stats.
+		.filter(b => b.format !== '1v1')
 		.sort((a, b) => b.updatedAt - a.updatedAt);
 
 	let wins = 0;
@@ -744,6 +786,81 @@ export function registerForTournament(tournamentId: string, clanId: string, regi
 	tournamentTeams.set(tournamentId, teams);
 	
 	return team;
+}
+
+
+// ============================================
+// LADDER FILTERING (Tabs)
+// ============================================
+export type LadderTab = 'SINGLES' | 'DOUBLES' | 'TEAM' | 'CLANS';
+
+function getClanXpLadderForFormats(formats: BeefMatch['format'][]): LadderEntry[] {
+	// Only RANKED, COMPLETED matches contribute to ladders.
+	const eligibleAll = getAllBeefMatches()
+		.filter(b => b.status === 'COMPLETED')
+		.filter(b => (b.queue ?? 'RANKED') === 'RANKED')
+		.filter(b => formats.includes(b.format));
+
+	// If there are no eligible ranked matches at all, return empty so UI can show a true empty-state.
+	if (eligibleAll.length === 0) return [];
+
+	const entries: LadderEntry[] = [];
+
+	for (const clan of clans.values()) {
+		const clanBeefs = eligibleAll.filter(b => b.challengerClanId === clan.id || b.challengedClanId === clan.id);
+		if (clanBeefs.length === 0) continue;
+
+		let wins = 0;
+		let losses = 0;
+		let lastMatchAt: number | null = null;
+
+		const sorted = [...clanBeefs].sort((a, b) => b.updatedAt - a.updatedAt);
+		for (const beef of sorted) {
+			if (beef.winnerId === clan.id) wins++;
+			else losses++;
+			if (!lastMatchAt) lastMatchAt = beef.updatedAt;
+		}
+
+		const matchesPlayed = wins + losses;
+		const xp = (matchesPlayed * 100) + (wins * 50);
+
+		entries.push({
+			rank: 0,
+			clanId: clan.id,
+			clan,
+			xp,
+			matchesPlayed,
+			wins,
+			losses,
+			lastMatchAt
+		});
+	}
+
+	entries.sort((a, b) => {
+		if (b.xp !== a.xp) return b.xp - a.xp;
+		const bt = b.lastMatchAt ?? 0;
+		const at = a.lastMatchAt ?? 0;
+		if (bt !== at) return bt - at;
+		return b.wins - a.wins;
+	});
+	entries.forEach((entry, i) => entry.rank = i + 1);
+
+	return entries;
+}
+
+export function getLadderForTab(tab: LadderTab): LadderEntry[] {
+	// Note: PLAYER-scoped ladders (Singles/Doubles/Team) will be powered by player/team match data.
+	// The V0 scaffold currently only has clan-scoped Beef matches, so only the CLANS tab will have data.
+	switch (tab) {
+		case 'CLANS':
+			// Clan ladder is 4v4-only, CLAN-scoped, Ranked.
+			return getClanXpLadderForFormats(['4v4']);
+		case 'SINGLES':
+		case 'DOUBLES':
+		case 'TEAM':
+		default:
+			return [];
+	}
 }
 
 // ============================================
