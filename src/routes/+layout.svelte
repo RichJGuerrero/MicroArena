@@ -68,6 +68,7 @@
 					<a href="/beef" class:active={isActive('/beef', $page.url.pathname)}>Beef</a>
 					<a href="/tournaments" class:active={isActive('/tournaments', $page.url.pathname)}>Tournaments</a>
 					<a href="/clans" class:active={isActive('/clans', $page.url.pathname)}>Clans</a>
+					<a href="/matches" class:active={isActive('/matches', $page.url.pathname)}>Matches</a>
 					<a href="/ladder" class:active={isActive('/ladder', $page.url.pathname)}>Ladder</a>
 					<a href="/integrity" class:active={isActive('/integrity', $page.url.pathname)}>Integrity</a>
 				</div>
@@ -109,6 +110,7 @@
 						<h4>Platform</h4>
 						<a href="/beef">Beef Matches</a>
 						<a href="/tournaments">Tournaments</a>
+							<a href="/matches">Matches</a>
 						<a href="/ladder">Ladder</a>
 					</div>
 					<div class="footer-section">
@@ -142,7 +144,7 @@
 		background-repeat: no-repeat;
 		background-position: center 120px;
 		background-size: min(980px, 85vw);
-		opacity: 1.00;
+		opacity: 0.75;
 		filter: saturate(1.05) contrast(1.05);
 	}
 	
@@ -270,7 +272,7 @@
 		.site-watermark {
 			background-position: center 90px;
 			background-size: min(720px, 92vw);
-			opacity: 1.00;
+			opacity: 0.75;
 		}
 	}
 	

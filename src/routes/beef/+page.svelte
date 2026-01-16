@@ -144,10 +144,10 @@
 	<ComingSoon
 		title="Beef Matches"
 		tagline="Settle rivalries with structure and integrity."
-		description="Beef Matches will enable direct challenges with clear rules, scheduling, and oversight (eventually). The focus is settlement of trash talk and good old fashioned beef (think 1v1 on rust)."
+		description="Beef Matches enable direct clan challenges with clear rules, scheduling, and oversight (eventually)."
 		planned={[
 			'Challenge/accept flow (clan vs clan)',
-			'Flexible match formats (1v1 to 4v4)',
+			'Team formats (2v2 to 4v4)',
 			'Referee and stream requirements (configurable per match)',
 			'Result reporting and integrity impact for behavior (no-shows, disputes abuse)',
 			'Future: winner-take-all / prestige formats once the platform is stable'
@@ -198,11 +198,9 @@
 						<div class="form-group format-group">
 							<label for="format">Format</label>
 							<select id="format" bind:value={format}>
-								<option value="1v1">1v1</option>
 								<option value="2v2">2v2</option>
 								<option value="3v3">3v3</option>
 								<option value="4v4">4v4</option>
-								<option value="5v5">5v5</option>
 							</select>
 						</div>
 					</div>
