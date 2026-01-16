@@ -229,7 +229,10 @@
 		border-radius: var(--radius-lg);
 		border: 1px solid rgba(255, 255, 255, 0.08);
 		background: rgba(0, 0, 0, 0.18);
+<<<<<<< HEAD
 		color: rgba(255, 255, 255, 0.88);
+=======
+>>>>>>> fda08aa2bb71e02a1c0284073d549e1312947da3
 		cursor: pointer;
 		text-align: left;
 		transition: transform 0.12s ease, border-color 0.12s ease, background 0.12s ease;
@@ -241,7 +244,11 @@
 		box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06) inset;
 	}
 	.tab-emoji { font-size: 1.1rem; }
+<<<<<<< HEAD
 	.tab-label { font-weight: 700; color: rgba(255, 255, 255, 0.92); }
+=======
+	.tab-label { font-weight: 700; }
+>>>>>>> fda08aa2bb71e02a1c0284073d549e1312947da3
 	.tab-hint { color: var(--text-muted); font-size: 0.75rem; }
 
 	.season-info {
