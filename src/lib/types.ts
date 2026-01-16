@@ -32,12 +32,23 @@ export interface UserProfile extends User {
 	recentMatches: Match[];
 }
 
-export interface UserStats {
-	totalMatches: number;
+export interface RecordLine {
+	matchesPlayed: number;
 	xp: number;
 	wins: number;
 	losses: number;
 	winRate: number;
+}
+
+export interface UserStats {
+	/** Combined totals across solo + clan */
+	overall: RecordLine;
+	/** 1v1 / solo play (does NOT affect clan stats) */
+	solo: RecordLine;
+	/** Clan/team play (2v2+) */
+	clan: RecordLine;
+
+	// V0 compatibility / future placeholders
 	beefWins: number;
 	beefLosses: number;
 	tournamentWins: number;
@@ -126,6 +137,8 @@ export type BeefStatus =
 export interface BeefMatch {
 	id: string;
 	format: BeefFormat;
+	/** Ranked or Unranked queue (defaults to RANKED if omitted). */
+	queue?: MatchQueue;
 	challengerClanId: string;
 	challengedClanId: string;
 	challengerClan?: Clan;
@@ -215,8 +228,21 @@ export interface TournamentMatch {
 export type MatchType = 'BEEF' | 'TOURNAMENT' | 'LADDER';
 export type MatchStatus = 'SCHEDULED' | 'LIVE' | 'COMPLETED' | 'DISPUTED' | 'CANCELLED';
 
+// A match can either be played under a clan banner (counts for clan stats)
+// or as a pure player/solo match (does NOT affect clan stats).
+export type MatchScope = 'CLAN' | 'PLAYER';
+
+// Ranked matches affect ladders/XP; Unranked matches are for practice/fun.
+export type MatchQueue = 'RANKED' | 'UNRANKED';
+
 export interface Match {
 	id: string;
+	/** CLAN matches count for clan stats, PLAYER matches do not. */
+	scope: MatchScope;
+	/** Display format (1v1, 2v2, etc). */
+	format: BeefFormat;
+	/** Ranked or Unranked queue. */
+	queue: MatchQueue;
 	type: MatchType;
 	referenceId: string;      // BeefMatch ID or Tournament ID
 	team1Id: string;
@@ -240,6 +266,71 @@ export interface Match {
 export interface MatchParticipant {
 	id: string;
 	username: string;
+}
+
+// ============================================
+// ARENA MATCH BOARD (Create / Join / Direct Challenge)
+// ============================================
+// V0: Lightweight in-memory "match board" system used for open matches and direct challenges.
+// These matches are separate from Beef Matches and Tournaments.
+//
+// The goal is to support classic CMG/GB flows:
+// - Create open matches that anyone can join.
+// - Send direct challenges that must be accepted/declined.
+
+export type ArenaMatchVisibility = 'OPEN' | 'DIRECT';
+
+export type ArenaMatchStatus =
+	| 'PENDING'   // awaiting accept/decline (DIRECT only)
+	| 'OPEN'      // joinable / filling rosters
+	| 'LIVE'      // rosters full / match in progress
+	| 'COMPLETED'
+	| 'DECLINED'
+	| 'CANCELLED';
+
+export type ArenaSideKey = 'A' | 'B';
+
+export interface ArenaMatchSide {
+	/** For CLAN-scoped matches, this locks the side to a specific clan once set. */
+	clanId: string | null;
+	/** For PLAYER matches, these are the participating user IDs. For CLAN matches, this is the roster list. */
+	playerIds: string[];
+}
+
+export interface ArenaMatch {
+	id: string;
+	visibility: ArenaMatchVisibility;
+	status: ArenaMatchStatus;
+	/** CLAN matches count for clan stats (ranked only). PLAYER matches do not affect clan stats. */
+	scope: MatchScope;
+	format: BeefFormat;
+	queue: MatchQueue;
+	ruleset: string;
+	refRequired: boolean;
+	streamRequired: boolean;
+	streamUrl: string | null;
+	scheduledTime: number | null;
+	createdBy: string;
+	createdAt: number;
+	updatedAt: number;
+	completedAt: number | null;
+	teamA: ArenaMatchSide;
+	teamB: ArenaMatchSide;
+	/** DIRECT challenges target either a user or a clan (depending on scope). */
+	challengedUserId: string | null;
+	challengedClanId: string | null;
+	winnerSide: ArenaSideKey | null;
+	scoreA: number | null;
+	scoreB: number | null;
+}
+
+export interface ArenaMatchView {
+	match: ArenaMatch;
+	createdByUser: Pick<User, 'id' | 'username'> | null;
+	teamAClan: Clan | null;
+	teamBClan: Clan | null;
+	teamAPlayers: MatchParticipant[];
+	teamBPlayers: MatchParticipant[];
 }
 
 // ============================================
