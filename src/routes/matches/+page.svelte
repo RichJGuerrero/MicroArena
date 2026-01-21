@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { isAuthenticated, currentUser, isLoading } from '$lib/auth';
+	import { onMount } from 'svelte';
+	import { currentUser, isAuthenticated } from '$lib/auth';
 	import type { ArenaMatchView, ArenaSideKey, BeefMatch, MatchQueue, MatchScope } from '$lib/types';
 
 	type Visibility = 'OPEN' | 'DIRECT';
@@ -16,7 +17,6 @@
 	let queue: MatchQueue = 'RANKED';
 	let ruleset = 'Standard Rules';
 	let target = '';
-	let booted = false;
 
 	const teamSize = (f: BeefMatch['format']) => {
 		switch (f) {
@@ -66,16 +66,10 @@
 		}
 	}
 
-	// Defer initial load until auth finishes initializing.
-	$: if (!booted && !$isLoading) {
-		booted = true;
+	onMount(async () => {
 		enforceCanon();
-		if ($isAuthenticated && $currentUser) {
-			load();
-		} else {
-			loading = false;
-		}
-	}
+		await load();
+	});
 
 	$: enforceCanon();
 
@@ -152,13 +146,15 @@
 	}
 
 	async function complete(id: string, winnerSide: ArenaSideKey) {
+		const userId = myUserId();
+		if (!userId) return;
 		error = null;
 		actionBusy = `complete:${id}:${winnerSide}`;
 		try {
 			const res = await fetch(`/api/matches/${id}/complete`, {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ winnerSide })
+				body: JSON.stringify({ userId, winnerSide })
 			});
 			const data = await res.json();
 			if (!res.ok) throw new Error(data?.error ?? 'Failed to complete');
@@ -211,7 +207,10 @@
 		if (!uid) return false;
 		const m = x.match;
 		if (!(m.status === 'OPEN' || m.status === 'LIVE')) return false;
-		if (m.visibility === 'DIRECT' && m.status === 'PENDING') return false;
+		// Only allow joining direct matches if not pending
+		if (m.visibility === 'DIRECT' && (m.status !== 'OPEN' && m.status !== 'LIVE')) {
+			return false;
+		}
 		if (inRoster(x)) return false;
 		const size = teamSize(m.format);
 		if (side === 'A' && x.teamAPlayers.length >= size) return false;
@@ -276,22 +275,15 @@
 		Create open matches like old-school GB/CMG, or send direct challenges.
 	</p>
 
-	{#if $isLoading}
-		<div class="loading"><div class="spinner"></div></div>
-	{:else if !$isAuthenticated || !$currentUser}
-		<div class="empty-state card">
-			<div class="empty-state-icon">🔒</div>
-			<p>You need to be logged in to create or join matches.</p>
-			<a href="/login" class="btn">Login</a>
-		</div>
-	{:else}
+	{#if error}
+		<div class="banner error">{error}</div>
+	{/if}
 
-		{#if error}
-			<div class="banner error">{error}</div>
-		{/if}
-
-		<section class="card">
+	<section class="card">
 		<h2>Create Match</h2>
+		{#if !$isAuthenticated}
+			<div class="hint">Log in to create matches, join teams, and accept challenges.</div>
+		{/if}
 		<div class="grid">
 			<div class="field">
 				<label for="matchVisibility">Type</label>
@@ -352,16 +344,16 @@
 		</div>
 
 		<div class="actions">
-			<button class="btn" on:click={createMatch} disabled={actionBusy === 'create'}>
+			<button class="btn" on:click={createMatch} disabled={!$isAuthenticated || actionBusy === 'create'}>
 				{visibility === 'DIRECT' ? 'Send Challenge' : 'Create Match'}
 			</button>
 			<button class="btn secondary" on:click={load} disabled={loading}>Refresh</button>
 		</div>
-		</section>
+	</section>
 
-		{#if loading}
+	{#if loading}
 		<p class="muted">Loading matches…</p>
-		{:else}
+	{:else}
 		{#if incomingChallenges().length}
 			<section class="section">
 				<h2>Incoming Challenges</h2>
@@ -488,7 +480,6 @@
 				</div>
 			{/if}
 		</section>
-		{/if}
 	{/if}
 </div>
 

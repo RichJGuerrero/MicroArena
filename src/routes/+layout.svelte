@@ -68,7 +68,10 @@
 					<a href="/beef" class:active={isActive('/beef', $page.url.pathname)}>Beef</a>
 					<a href="/tournaments" class:active={isActive('/tournaments', $page.url.pathname)}>Tournaments</a>
 					<a href="/clans" class:active={isActive('/clans', $page.url.pathname)}>Clans</a>
+<<<<<<< HEAD
 					<a href="/inbox" class:active={isActive('/inbox', $page.url.pathname)}>Inbox</a>
+=======
+>>>>>>> 393556e65ae20a7804eb4ab3df59bee6f1b2e3bd
 					<a href="/matches" class:active={isActive('/matches', $page.url.pathname)}>Matches</a>
 					<a href="/ladder" class:active={isActive('/ladder', $page.url.pathname)}>Ladder</a>
 					<a href="/integrity" class:active={isActive('/integrity', $page.url.pathname)}>Integrity</a>

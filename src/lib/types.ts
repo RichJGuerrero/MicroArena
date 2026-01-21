@@ -334,6 +334,7 @@ export interface ArenaMatchView {
 }
 
 // ============================================
+<<<<<<< HEAD
 // INBOX + CLAN INVITES
 // ============================================
 
@@ -362,6 +363,8 @@ export interface InboxItemView {
 }
 
 // ============================================
+=======
+>>>>>>> 393556e65ae20a7804eb4ab3df59bee6f1b2e3bd
 // LADDER TYPES
 // ============================================
 export interface LadderEntry {
