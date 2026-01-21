@@ -11,11 +11,20 @@ import type {
 	Tournament,
 	TournamentTeam,
 	Match,
+	ArenaMatch,
+	ArenaMatchView,
+	ArenaSideKey,
+	MatchQueue,
 	LadderEntry,
 	UserStats,
 	ClanStats,
-	MatchParticipant
+	MatchParticipant,
+	ClanInvite,
+	InboxItemView
 } from '$lib/types';
+
+import fs from 'node:fs';
+import path from 'node:path';
 
 // ============================================
 // DATA STORES
@@ -30,11 +39,202 @@ const tournamentTeams = new Map<string, Map<string, TournamentTeam>>(); // tourn
 const matches = new Map<string, Match>();
 const ladderRatings = new Map<string, number>(); // clanId -> rating
 
+// Match Board / Direct Challenges (CMG/GB style)
+const arenaMatches = new Map<string, ArenaMatch>();
+
+// Clan Invites (invite-only clans)
+const clanInvites = new Map<string, ClanInvite>();
+
+// ============================================
+// V0 DISK PERSISTENCE
+// ============================================
+// Goal: keep the platform usable between restarts without adding a full DB yet.
+// This is local-dev friendly and can later be swapped for Postgres.
+
+const DATA_DIR = path.join(process.cwd(), 'data');
+
+function ensureDataDir(): void {
+	try {
+		if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+	} catch {
+		// If persistence fails, we silently fall back to in-memory V0.
+	}
+}
+
+function readJson<T>(filename: string, fallback: T): T {
+	try {
+		const full = path.join(DATA_DIR, filename);
+		if (!fs.existsSync(full)) return fallback;
+		const raw = fs.readFileSync(full, 'utf8');
+		if (!raw.trim()) return fallback;
+		return JSON.parse(raw) as T;
+	} catch {
+		return fallback;
+	}
+}
+
+function writeJsonAtomic(filename: string, data: unknown): void {
+	try {
+		ensureDataDir();
+		const full = path.join(DATA_DIR, filename);
+		const tmp = `${full}.tmp`;
+		fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf8');
+		fs.renameSync(tmp, full);
+	} catch {
+		// If persistence fails, keep going in memory.
+	}
+}
+
+let saveTimer: NodeJS.Timeout | null = null;
+function touch(): void {
+	// Debounce disk writes to avoid spamming the filesystem.
+	if (saveTimer) return;
+	saveTimer = setTimeout(() => {
+		saveTimer = null;
+		saveAll();
+	}, 150);
+}
+
+function saveAll(): void {
+	// Serialize maps into JSON-friendly structures.
+	writeJsonAtomic('users.json', Array.from(users.values()));
+	writeJsonAtomic('clans.json', Array.from(clans.values()));
+	writeJsonAtomic(
+		'clanMembers.json',
+		Object.fromEntries(Array.from(clanMembers.entries()).map(([cid, set]) => [cid, Array.from(set.values())]))
+	);
+	writeJsonAtomic('integrityEvents.json', Array.from(integrityEvents.values()));
+	writeJsonAtomic('beefMatches.json', Array.from(beefMatches.values()));
+	writeJsonAtomic('tournaments.json', Array.from(tournaments.values()));
+	writeJsonAtomic(
+		'tournamentTeams.json',
+		Object.fromEntries(
+			Array.from(tournamentTeams.entries()).map(([tid, teamMap]) => [tid, Array.from(teamMap.values())])
+		)
+	);
+	writeJsonAtomic('ladderRatings.json', Object.fromEntries(Array.from(ladderRatings.entries())));
+	writeJsonAtomic('arenaMatches.json', Array.from(arenaMatches.values()));
+	writeJsonAtomic('clanInvites.json', Array.from(clanInvites.values()));
+}
+
+function loadAll(): void {
+	ensureDataDir();
+
+	// Users
+	for (const u of readJson('users.json', [] as User[])) users.set(u.id, u);
+
+	// Clans
+	for (const c of readJson('clans.json', [] as Clan[])) clans.set(c.id, c);
+
+	// Clan Members
+	const cm = readJson('clanMembers.json', {} as Record<string, string[]>);
+	for (const [cid, ids] of Object.entries(cm)) clanMembers.set(cid, new Set(ids));
+
+	// Backfill membership sets from user.clanId (keeps state resilient to partial files)
+	for (const u of users.values()) {
+		if (!u.clanId) continue;
+		const set = clanMembers.get(u.clanId) ?? new Set<string>();
+		set.add(u.id);
+		clanMembers.set(u.clanId, set);
+	}
+
+	// Integrity Events
+	for (const ev of readJson('integrityEvents.json', [] as IntegrityEvent[])) integrityEvents.set(ev.id, ev);
+
+	// Beef Matches
+	for (const bm of readJson('beefMatches.json', [] as BeefMatch[])) beefMatches.set(bm.id, bm);
+
+	// Tournaments
+	for (const t of readJson('tournaments.json', [] as Tournament[])) tournaments.set(t.id, t);
+
+	// Tournament Teams
+	const tts = readJson('tournamentTeams.json', {} as Record<string, TournamentTeam[]>);
+	for (const [tid, teams] of Object.entries(tts)) {
+		const map = new Map<string, TournamentTeam>();
+		for (const team of teams) map.set(team.clanId, team);
+		tournamentTeams.set(tid, map);
+	}
+
+	// Ladder Ratings
+	const lr = readJson('ladderRatings.json', {} as Record<string, number>);
+	for (const [cid, rating] of Object.entries(lr)) ladderRatings.set(cid, Number(rating));
+
+	// Arena Matches
+	for (const am of readJson('arenaMatches.json', [] as ArenaMatch[])) arenaMatches.set(am.id, am);
+
+	// Clan Invites
+	for (const inv of readJson('clanInvites.json', [] as ClanInvite[])) clanInvites.set(inv.id, inv);
+
+	// Recompute clan integrity/memberCount so UI stays consistent.
+	for (const cid of clans.keys()) {
+		recalculateClanIntegrity(cid);
+	}
+}
+
+// Load persisted state once at module init (server boot)
+loadAll();
+
 // ============================================
 // ID GENERATION
 // ============================================
 export function generateId(): string {
 	return `${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 11)}`;
+}
+
+// ============================================
+// MATCH BOARD HELPERS
+// ============================================
+function getTeamSize(format: BeefMatch['format']): number {
+	switch (format) {
+		case '1v1': return 1;
+		case '2v2': return 2;
+		case '3v3': return 3;
+		case '4v4': return 4;
+		case '5v5': return 5;
+		default: return 1;
+	}
+}
+
+function toParticipants(ids: string[]): MatchParticipant[] {
+	return ids
+		.map((id) => users.get(id))
+		.filter((u): u is User => !!u)
+		.map((u) => ({ id: u.id, username: u.username }));
+}
+
+function arenaToMatch(arena: ArenaMatch): Match {
+	// Only CLAN-scoped arena matches are represented in match history right now.
+	const team1 = arena.teamA.clanId ? clans.get(arena.teamA.clanId) : null;
+	const team2 = arena.teamB.clanId ? clans.get(arena.teamB.clanId) : null;
+	if (!team1 || !team2) {
+		throw new Error('Arena match is missing clans');
+	}
+
+	const winnerId = arena.winnerSide === 'A' ? team1.id : arena.winnerSide === 'B' ? team2.id : null;
+
+	return {
+		id: arena.id,
+		scope: arena.scope,
+		format: arena.format,
+		queue: arena.queue,
+		type: 'LADDER',
+		referenceId: arena.id,
+		team1Id: team1.id,
+		team2Id: team2.id,
+		team1,
+		team2,
+		team1PlayerIds: arena.teamA.playerIds,
+		team2PlayerIds: arena.teamB.playerIds,
+		team1Players: toParticipants(arena.teamA.playerIds),
+		team2Players: toParticipants(arena.teamB.playerIds),
+		team1Score: arena.scoreA,
+		team2Score: arena.scoreB,
+		winnerId,
+		status: arena.status === 'COMPLETED' ? 'COMPLETED' : arena.status === 'CANCELLED' ? 'CANCELLED' : 'SCHEDULED',
+		scheduledTime: arena.scheduledTime,
+		completedAt: arena.completedAt,
+		createdAt: arena.createdAt
+	};
 }
 
 // ============================================
@@ -68,6 +268,7 @@ export function createUser(data: {
 	};
 	
 	users.set(data.id, user);
+	touch();
 	return user;
 }
 
@@ -106,6 +307,7 @@ export function updateUser(userId: string, data: Partial<User>): User | null {
 	
 	const updated = { ...user, ...data, updatedAt: Date.now() };
 	users.set(userId, updated);
+	touch();
 	return updated;
 }
 
@@ -114,56 +316,125 @@ export function getAllUsers(): User[] {
 }
 
 export function getUserStats(userId: string): UserStats {
+	const empty = (): { matchesPlayed: number; xp: number; wins: number; losses: number; winRate: number } => ({
+		matchesPlayed: 0,
+		xp: 0,
+		wins: 0,
+		losses: 0,
+		winRate: 0
+	});
+
 	const user = users.get(userId);
-	if (!user || !user.clanId) {
+	if (!user) {
 		return {
-			totalMatches: 0,
-			xp: 0,
-			wins: 0,
-			losses: 0,
-			winRate: 0,
+			overall: empty(),
+			solo: empty(),
+			clan: empty(),
 			beefWins: 0,
 			beefLosses: 0,
 			tournamentWins: 0
 		};
 	}
 
-	// Launch V0: Stats are derived from completed Beef Matches.
-	// If participant tracking is present, only count matches the user actually played.
-	const clanBeefs = getBeefMatchesForClan(user.clanId).filter(b => b.status === 'COMPLETED');
+	// Solo stats are derived from completed PLAYER-scoped 1v1 matches.
+	let soloWins = 0;
+	let soloLosses = 0;
+	for (const m of getAllArenaMatches()) {
+		if (m.scope !== 'PLAYER') continue;
+		if (m.format !== '1v1') continue;
+		if (m.status !== 'COMPLETED') continue;
+		if (m.queue !== 'RANKED') continue;
+		const inA = m.teamA.playerIds.includes(userId);
+		const inB = m.teamB.playerIds.includes(userId);
+		if (!inA && !inB) continue;
+		const won = (inA && m.winnerSide === 'A') || (inB && m.winnerSide === 'B');
+		if (won) soloWins++; else soloLosses++;
+	}
+	const soloMatchesPlayed = soloWins + soloLosses;
+	const soloXp = (soloMatchesPlayed * 100) + (soloWins * 50);
+	const solo = {
+		matchesPlayed: soloMatchesPlayed,
+		xp: soloXp,
+		wins: soloWins,
+		losses: soloLosses,
+		winRate: soloMatchesPlayed > 0 ? Math.round((soloWins / soloMatchesPlayed) * 100) : 0
+	};
 
-	let wins = 0;
-	let losses = 0;
+	// Clan/team stats are derived from completed Beef Matches in the user's current clan.
+	// IMPORTANT: 1v1 is treated as SOLO-only and does not affect clan stats.
+	let clanWins = 0;
+	let clanLosses = 0;
 	let beefWins = 0;
 	let beefLosses = 0;
 	let tournamentWins = 0;
 
-	for (const beef of clanBeefs) {
-		const p1 = beef.challengerPlayerIds ?? [];
-		const p2 = beef.challengedPlayerIds ?? [];
-		const hasRoster = p1.length > 0 || p2.length > 0;
-		const played = !hasRoster || p1.includes(userId) || p2.includes(userId);
-		if (!played) continue;
+	if (user.clanId) {
+		const clanBeefs = getBeefMatchesForClan(user.clanId)
+			.filter((b) => b.status === 'COMPLETED')
+			.filter((b) => (b.queue ?? 'RANKED') === 'RANKED')
+			.filter((b) => b.format !== '1v1');
 
-		const won = beef.winnerId === user.clanId;
-		if (won) {
-			wins++;
-			beefWins++;
-		} else {
-			losses++;
-			beefLosses++;
+		for (const beef of clanBeefs) {
+			const p1 = beef.challengerPlayerIds ?? [];
+			const p2 = beef.challengedPlayerIds ?? [];
+			const hasRoster = p1.length > 0 || p2.length > 0;
+			const played = !hasRoster || p1.includes(userId) || p2.includes(userId);
+			if (!played) continue;
+
+			const won = beef.winnerId === user.clanId;
+			if (won) {
+				clanWins++;
+				beefWins++;
+			} else {
+				clanLosses++;
+				beefLosses++;
+			}
+		}
+
+		const clanArenas = getAllArenaMatches()
+			.filter((m) => m.scope === 'CLAN')
+			.filter((m) => m.status === 'COMPLETED')
+			.filter((m) => m.queue === 'RANKED')
+			.filter((m) => m.teamA.clanId === user.clanId || m.teamB.clanId === user.clanId);
+
+		for (const m of clanArenas) {
+			// If rosters are tracked, only count if the user participated.
+			const rosterKnown = m.teamA.playerIds.length > 0 || m.teamB.playerIds.length > 0;
+			const played = !rosterKnown || m.teamA.playerIds.includes(userId) || m.teamB.playerIds.includes(userId);
+			if (!played) continue;
+
+			const winnerClanId = m.winnerSide === 'A' ? m.teamA.clanId : m.winnerSide === 'B' ? m.teamB.clanId : null;
+			const won = winnerClanId === user.clanId;
+			if (won) clanWins++; else clanLosses++;
 		}
 	}
 
-	const totalMatches = wins + losses;
-	const xp = (totalMatches * 100) + (wins * 50);
+	const clanMatchesPlayed = clanWins + clanLosses;
+	const clanXp = (clanMatchesPlayed * 100) + (clanWins * 50);
+	const clan = {
+		matchesPlayed: clanMatchesPlayed,
+		xp: clanXp,
+		wins: clanWins,
+		losses: clanLosses,
+		winRate: clanMatchesPlayed > 0 ? Math.round((clanWins / clanMatchesPlayed) * 100) : 0
+	};
+
+	const overallMatchesPlayed = solo.matchesPlayed + clan.matchesPlayed;
+	const overallWins = solo.wins + clan.wins;
+	const overallLosses = solo.losses + clan.losses;
+	const overallXp = solo.xp + clan.xp;
+	const overall = {
+		matchesPlayed: overallMatchesPlayed,
+		xp: overallXp,
+		wins: overallWins,
+		losses: overallLosses,
+		winRate: overallMatchesPlayed > 0 ? Math.round((overallWins / overallMatchesPlayed) * 100) : 0
+	};
 
 	return {
-		totalMatches,
-		xp,
-		wins,
-		losses,
-		winRate: totalMatches > 0 ? Math.round((wins / totalMatches) * 100) : 0,
+		overall,
+		solo,
+		clan,
 		beefWins,
 		beefLosses,
 		tournamentWins
@@ -214,7 +485,8 @@ export function createClan(data: {
 	
 	// Initialize ladder rating
 	ladderRatings.set(clan.id, 1500);
-	
+
+	touch();
 	return clan;
 }
 
@@ -291,6 +563,7 @@ export function joinClan(clanId: string, userId: string): Clan {
 	
 	// Recalculate clan integrity and member count
 	recalculateClanIntegrity(clanId);
+	touch();
 	
 	return clans.get(clanId)!;
 }
@@ -322,11 +595,13 @@ export function leaveClan(clanId: string, userId: string): { disbanded: boolean 
 		clans.delete(clanId);
 		clanMembers.delete(clanId);
 		ladderRatings.delete(clanId);
+		touch();
 		return { disbanded: true };
 	}
 	
 	clanMembers.set(clanId, members);
 	recalculateClanIntegrity(clanId);
+	touch();
 	
 	return { disbanded: false };
 }
@@ -337,7 +612,139 @@ export function updateClan(clanId: string, data: Partial<Clan>): Clan | null {
 	
 	const updated = { ...clan, ...data, updatedAt: Date.now() };
 	clans.set(clanId, updated);
+	touch();
 	return updated;
+}
+
+// ============================================
+// CLAN INVITE OPERATIONS (Invite-only clans)
+// ============================================
+export function createClanInvite(data: {
+	clanId: string;
+	fromUserId: string;
+	targetUsername: string;
+}): ClanInvite {
+	const clan = clans.get(data.clanId);
+	if (!clan) throw new Error('Clan not found');
+	if (clan.founderId !== data.fromUserId) throw new Error('Only the clan founder can send invites');
+
+	const target = getUserByUsername(data.targetUsername);
+	if (!target) throw new Error('User not found');
+	if (target.clanId) throw new Error('That user is already in a clan');
+
+	// Prevent duplicate pending invite for this clan/user.
+	for (const inv of clanInvites.values()) {
+		if (inv.status !== 'PENDING') continue;
+		if (inv.clanId === data.clanId && inv.toUserId === target.id) {
+			throw new Error('That user already has a pending invite to this clan');
+		}
+	}
+
+	const now = Date.now();
+	const invite: ClanInvite = {
+		id: generateId(),
+		clanId: data.clanId,
+		toUserId: target.id,
+		fromUserId: data.fromUserId,
+		status: 'PENDING',
+		createdAt: now,
+		updatedAt: now
+	};
+
+	clanInvites.set(invite.id, invite);
+	touch();
+	return invite;
+}
+
+export function getPendingClanInvitesForUser(userId: string): ClanInvite[] {
+	return Array.from(clanInvites.values())
+		.filter((i) => i.toUserId === userId)
+		.filter((i) => i.status === 'PENDING')
+		.sort((a, b) => b.createdAt - a.createdAt);
+}
+
+export function respondToClanInvite(inviteId: string, userId: string, accept: boolean): ClanInvite {
+	const invite = clanInvites.get(inviteId);
+	if (!invite) throw new Error('Invite not found');
+	if (invite.toUserId !== userId) throw new Error('Only the invited user can respond');
+	if (invite.status !== 'PENDING') throw new Error('This invite is not pending');
+
+	const now = Date.now();
+	if (!accept) {
+		invite.status = 'DECLINED';
+		invite.updatedAt = now;
+		clanInvites.set(invite.id, invite);
+		touch();
+		return invite;
+	}
+
+	// Accept: join clan, mark invite accepted, cancel other pending invites.
+	joinClan(invite.clanId, userId);
+	invite.status = 'ACCEPTED';
+	invite.updatedAt = now;
+	clanInvites.set(invite.id, invite);
+
+	for (const other of clanInvites.values()) {
+		if (other.id === invite.id) continue;
+		if (other.toUserId !== userId) continue;
+		if (other.status !== 'PENDING') continue;
+		other.status = 'CANCELLED';
+		other.updatedAt = now;
+		clanInvites.set(other.id, other);
+	}
+
+	touch();
+	return invite;
+}
+
+// ============================================
+// INBOX (Pending only, Option A)
+// ============================================
+export function getInboxForUser(userId: string): InboxItemView[] {
+	const user = users.get(userId);
+	if (!user) throw new Error('User not found');
+
+	const items: InboxItemView[] = [];
+
+	// Clan Invites (pending)
+	for (const inv of getPendingClanInvitesForUser(userId)) {
+		const clan = clans.get(inv.clanId);
+		const from = users.get(inv.fromUserId);
+		items.push({
+			type: 'CLAN_INVITE',
+			id: inv.id,
+			createdAt: inv.createdAt,
+			title: clan ? `Clan Invite: ${clan.tag}` : 'Clan Invite',
+			details: `${clan ? clan.name : 'Unknown Clan'} · From ${from ? from.username : 'Unknown'}`,
+			href: clan ? `/clans/${clan.tag}` : '/clans'
+		});
+	}
+
+	// Match Challenges (DIRECT, pending)
+	for (const m of getAllArenaMatches()) {
+		if (m.visibility !== 'DIRECT') continue;
+		if (m.status !== 'PENDING') continue;
+
+		if (m.scope === 'PLAYER') {
+			if (m.challengedUserId !== userId) continue;
+		} else {
+			if (!user.clanId) continue;
+			if (m.challengedClanId !== user.clanId) continue;
+		}
+
+		const from = users.get(m.createdBy);
+		items.push({
+			type: 'MATCH_CHALLENGE',
+			id: m.id,
+			createdAt: m.createdAt,
+			title: `Match Challenge: ${m.format.toUpperCase()} · ${m.queue}`,
+			details: `${m.scope} · ${m.ruleset} · From ${from ? from.username : 'Unknown'}`,
+			href: '/matches'
+		});
+	}
+
+	items.sort((a, b) => b.createdAt - a.createdAt);
+	return items;
 }
 
 function recalculateClanIntegrity(clanId: string): void {
@@ -401,6 +808,8 @@ export function createIntegrityEvent(data: {
 	if (user.clanId) {
 		recalculateClanIntegrity(user.clanId);
 	}
+
+	touch();
 	
 	return event;
 }
@@ -422,6 +831,8 @@ export function createBeefMatch(data: {
 	scheduledTime?: number;
 	refRequired?: boolean;
 	streamRequired?: boolean;
+	// Ranked or Unranked queue (defaults to RANKED)
+	queue?: MatchQueue;
 	createdBy: string;
 }): BeefMatch {
 	const challenger = clans.get(data.challengerClanId);
@@ -436,6 +847,7 @@ export function createBeefMatch(data: {
 	const beef: BeefMatch = {
 		id: generateId(),
 		format: data.format,
+		queue: data.queue ?? 'RANKED',
 		challengerClanId: data.challengerClanId,
 		challengedClanId: data.challengedClanId,
 		ruleset: data.ruleset,
@@ -453,6 +865,7 @@ export function createBeefMatch(data: {
 	};
 	
 	beefMatches.set(beef.id, beef);
+	touch();
 	return beef;
 }
 
@@ -489,6 +902,7 @@ export function updateBeefMatch(id: string, data: Partial<BeefMatch>): BeefMatch
 	
 	const updated = { ...beef, ...data, updatedAt: Date.now() };
 	beefMatches.set(id, updated);
+	touch();
 	return updated;
 }
 
@@ -506,6 +920,7 @@ export function respondToBeefMatch(id: string, accept: boolean, responderId: str
 	beef.status = accept ? 'ACCEPTED' : 'DECLINED';
 	beef.updatedAt = Date.now();
 	beefMatches.set(id, beef);
+	touch();
 	
 	return beef;
 }
@@ -542,8 +957,254 @@ export function completeBeefMatch(
 	
 	ladderRatings.set(winnerId, winnerRating + ratingChange);
 	ladderRatings.set(loserId, Math.max(1000, loserRating - ratingChange));
+	touch();
 	
 	return beef;
+}
+
+// ============================================
+// ARENA MATCH OPERATIONS (Match Board / Direct Challenges)
+// ============================================
+export function createArenaMatch(data: {
+	visibility: ArenaMatch['visibility'];
+	scope: ArenaMatch['scope'];
+	format: ArenaMatch['format'];
+	queue: ArenaMatch['queue'];
+	ruleset: string;
+	refRequired?: boolean;
+	streamRequired?: boolean;
+	scheduledTime?: number;
+	createdBy: string;
+	/** For DIRECT challenges: username (PLAYER) or clan tag (CLAN). */
+	target?: string;
+}): ArenaMatch {
+	const creator = users.get(data.createdBy);
+	if (!creator) throw new Error('Creator not found');
+
+	// Canon: Ranked affects XP/ladders; Unranked affects nothing.
+	// Canon: Clan ladder is always Ranked and 4v4 only.
+	if (data.scope === 'CLAN' && data.queue === 'RANKED' && data.format !== '4v4') {
+		throw new Error('Clan ranked matches must be 4v4');
+	}
+
+	const now = Date.now();
+	const match: ArenaMatch = {
+		id: generateId(),
+		visibility: data.visibility,
+		status: data.visibility === 'DIRECT' ? 'PENDING' : 'OPEN',
+		scope: data.scope,
+		format: data.format,
+		queue: data.queue,
+		ruleset: data.ruleset,
+		refRequired: data.refRequired ?? true,
+		streamRequired: data.streamRequired ?? false,
+		streamUrl: null,
+		scheduledTime: data.scheduledTime ?? null,
+		createdBy: data.createdBy,
+		createdAt: now,
+		updatedAt: now,
+		completedAt: null,
+		teamA: { clanId: null, playerIds: [] },
+		teamB: { clanId: null, playerIds: [] },
+		challengedUserId: null,
+		challengedClanId: null,
+		winnerSide: null,
+		scoreA: null,
+		scoreB: null
+	};
+
+	// Seed Team A
+	if (data.scope === 'CLAN') {
+		if (!creator.clanId) throw new Error('You must be in a clan to create a clan match');
+		match.teamA.clanId = creator.clanId;
+		match.teamA.playerIds = [creator.id];
+	} else {
+		match.teamA.playerIds = [creator.id];
+	}
+
+	// DIRECT challenges target a specific opponent.
+	if (data.visibility === 'DIRECT') {
+		const target = (data.target ?? '').trim();
+		if (!target) throw new Error('Target is required for direct challenges');
+
+		if (data.scope === 'PLAYER') {
+			const challenged = getUserByUsername(target);
+			if (!challenged) throw new Error('Target user not found');
+			if (challenged.id === creator.id) throw new Error('Cannot challenge yourself');
+			match.challengedUserId = challenged.id;
+			// Team B fills when the opponent accepts.
+		} else {
+			const challengedClan = getClanByTag(target);
+			if (!challengedClan) throw new Error('Target clan not found');
+			if (challengedClan.id === creator.clanId) throw new Error('Cannot challenge your own clan');
+			match.challengedClanId = challengedClan.id;
+			match.teamB.clanId = challengedClan.id;
+			// Team B roster fills when a member accepts.
+		}
+	}
+
+	arenaMatches.set(match.id, match);
+	touch();
+	return match;
+}
+
+export function getArenaMatch(id: string): ArenaMatch | null {
+	return arenaMatches.get(id) ?? null;
+}
+
+export function getAllArenaMatches(): ArenaMatch[] {
+	return Array.from(arenaMatches.values()).sort((a, b) => b.createdAt - a.createdAt);
+}
+
+export function getArenaMatchViews(): ArenaMatchView[] {
+	const all = getAllArenaMatches();
+	return all.map((m) => {
+		const createdByUser = users.get(m.createdBy) ? { id: m.createdBy, username: users.get(m.createdBy)!.username } : null;
+		const teamAClan = m.teamA.clanId ? clans.get(m.teamA.clanId) ?? null : null;
+		const teamBClan = m.teamB.clanId ? clans.get(m.teamB.clanId) ?? null : null;
+		return {
+			match: m,
+			createdByUser,
+			teamAClan,
+			teamBClan,
+			teamAPlayers: toParticipants(m.teamA.playerIds),
+			teamBPlayers: toParticipants(m.teamB.playerIds)
+		};
+	});
+}
+
+export function respondToArenaChallenge(id: string, responderId: string, accept: boolean): ArenaMatch {
+	const match = arenaMatches.get(id);
+	if (!match) throw new Error('Match not found');
+	if (match.visibility !== 'DIRECT') throw new Error('Not a direct challenge');
+	if (match.status !== 'PENDING') throw new Error('This challenge is not pending');
+
+	const responder = users.get(responderId);
+	if (!responder) throw new Error('Responder not found');
+
+	if (match.scope === 'PLAYER') {
+		if (match.challengedUserId !== responderId) throw new Error('Only the challenged player can respond');
+		if (!accept) {
+			match.status = 'DECLINED';
+			match.updatedAt = Date.now();
+			arenaMatches.set(id, match);
+			touch();
+			return match;
+		}
+
+		// Accept: lock opponent into Team B
+		match.teamB.playerIds = [responderId];
+		match.status = 'OPEN';
+	} else {
+		// CLAN: responder must be in challenged clan
+		if (!responder.clanId || responder.clanId !== match.challengedClanId) {
+			throw new Error('Only members of the challenged clan can respond');
+		}
+		if (!accept) {
+			match.status = 'DECLINED';
+			match.updatedAt = Date.now();
+			arenaMatches.set(id, match);
+			touch();
+			return match;
+		}
+		// Accept: roster seed and open join
+		match.teamB.clanId = responder.clanId;
+		if (!match.teamB.playerIds.includes(responderId)) {
+			match.teamB.playerIds.push(responderId);
+		}
+		match.status = 'OPEN';
+	}
+
+	// If both sides are already full, mark LIVE.
+	const size = getTeamSize(match.format);
+	if (match.teamA.playerIds.length >= size && match.teamB.playerIds.length >= size) {
+		match.status = 'LIVE';
+	}
+
+	match.updatedAt = Date.now();
+	arenaMatches.set(id, match);
+	touch();
+	return match;
+}
+
+export function joinArenaMatch(id: string, userId: string, side: ArenaSideKey): ArenaMatch {
+	const match = arenaMatches.get(id);
+	if (!match) throw new Error('Match not found');
+	if (!(match.status === 'OPEN' || match.status === 'LIVE')) {
+		throw new Error('This match is not joinable');
+	}
+
+	const user = users.get(userId);
+	if (!user) throw new Error('User not found');
+
+	const size = getTeamSize(match.format);
+	const a = match.teamA;
+	const b = match.teamB;
+
+	// Prevent joining both sides
+	if (a.playerIds.includes(userId) || b.playerIds.includes(userId)) {
+		return match;
+	}
+
+	if (match.scope === 'CLAN') {
+		if (!user.clanId) throw new Error('You must be in a clan to join a clan match');
+
+		if (side === 'A') {
+			if (!a.clanId) throw new Error('Team A is not set');
+			if (user.clanId !== a.clanId) throw new Error('You can only join your clan side');
+			if (a.playerIds.length >= size) throw new Error('Team A is full');
+			a.playerIds.push(userId);
+		} else {
+			// Team B can be claimed on OPEN matches (non-direct) if unset
+			if (!b.clanId) {
+				if (match.visibility === 'DIRECT') throw new Error('Opponent is locked for this challenge');
+				b.clanId = user.clanId;
+			}
+			if (user.clanId !== b.clanId) throw new Error('You can only join your clan side');
+			if (b.playerIds.length >= size) throw new Error('Team B is full');
+			b.playerIds.push(userId);
+		}
+	} else {
+		// PLAYER
+		if (side === 'A') {
+			if (a.playerIds.length >= size) throw new Error('Team A is full');
+			a.playerIds.push(userId);
+		} else {
+			if (b.playerIds.length >= size) throw new Error('Team B is full');
+			b.playerIds.push(userId);
+		}
+	}
+
+	// If both sides are full (and for CLAN, both clans are set), mark LIVE.
+	if (a.playerIds.length >= size && b.playerIds.length >= size) {
+		if (match.scope === 'PLAYER' || (a.clanId && b.clanId)) {
+			match.status = 'LIVE';
+		}
+	}
+
+	match.updatedAt = Date.now();
+	arenaMatches.set(id, match);
+	touch();
+	return match;
+}
+
+export function completeArenaMatch(id: string, winnerSide: ArenaSideKey, scoreA?: number, scoreB?: number): ArenaMatch {
+	const match = arenaMatches.get(id);
+	if (!match) throw new Error('Match not found');
+	if (match.status === 'COMPLETED') return match;
+	if (!(match.status === 'LIVE' || match.status === 'OPEN')) {
+		throw new Error('Match cannot be completed in its current state');
+	}
+
+	match.winnerSide = winnerSide;
+	match.scoreA = typeof scoreA === 'number' ? scoreA : match.scoreA;
+	match.scoreB = typeof scoreB === 'number' ? scoreB : match.scoreB;
+	match.status = 'COMPLETED';
+	match.completedAt = Date.now();
+	match.updatedAt = Date.now();
+	arenaMatches.set(id, match);
+	touch();
+	return match;
 }
 
 // ============================================
@@ -583,6 +1244,9 @@ function beefToMatch(beef: BeefMatch): Match {
 
 	return {
 		id: beef.id,
+		scope: 'CLAN',
+		format: beef.format,
+		queue: (beef.queue ?? 'RANKED'),
 		type: 'BEEF',
 		referenceId: beef.id,
 		team1Id: beef.challengerClanId,
@@ -604,11 +1268,34 @@ function beefToMatch(beef: BeefMatch): Match {
 }
 
 export function getRecentMatchesForClan(clanId: string, limit = 5): Match[] {
-	const completed = getBeefMatchesForClan(clanId)
-		.filter(b => b.status === 'COMPLETED')
-		.sort((a, b) => b.updatedAt - a.updatedAt)
-		.slice(0, Math.max(0, limit));
-	return completed.map(beefToMatch);
+	const items: { t: number; m: Match }[] = [];
+
+	const beefs = getBeefMatchesForClan(clanId)
+		.filter((b) => b.status === 'COMPLETED')
+		.filter((b) => (b.queue ?? 'RANKED') === 'RANKED')
+		// 1v1 is treated as solo play and should not appear in clan match history.
+		.filter((b) => b.format !== '1v1');
+
+	for (const b of beefs) {
+		items.push({ t: b.updatedAt, m: beefToMatch(b) });
+	}
+
+	const arenas = getAllArenaMatches()
+		.filter((m) => m.scope === 'CLAN')
+		.filter((m) => m.status === 'COMPLETED')
+		.filter((m) => m.queue === 'RANKED')
+		.filter((m) => m.teamA.clanId === clanId || m.teamB.clanId === clanId);
+
+	for (const a of arenas) {
+		try {
+			items.push({ t: a.updatedAt, m: arenaToMatch(a) });
+		} catch {
+			// ignore malformed arena matches
+		}
+	}
+
+	items.sort((x, y) => y.t - x.t);
+	return items.slice(0, Math.max(0, limit)).map((x) => x.m);
 }
 
 export function getRecentMatchesForUser(userId: string, limit = 5): Match[] {
@@ -625,17 +1312,33 @@ export function getRecentMatchesForUser(userId: string, limit = 5): Match[] {
 }
 
 export function getClanStats(clanId: string): ClanStats {
-	const completed = getBeefMatchesForClan(clanId)
-		.filter(b => b.status === 'COMPLETED')
-		.sort((a, b) => b.updatedAt - a.updatedAt);
+	const beefCompleted = getBeefMatchesForClan(clanId)
+		.filter((b) => b.status === 'COMPLETED')
+		.filter((b) => (b.queue ?? 'RANKED') === 'RANKED')
+		// 1v1 is a solo format and does not count toward clan stats.
+		.filter((b) => b.format !== '1v1');
+
+	const arenaCompleted = getAllArenaMatches()
+		.filter((m) => m.scope === 'CLAN')
+		.filter((m) => m.status === 'COMPLETED')
+		.filter((m) => m.queue === 'RANKED')
+		.filter((m) => m.teamA.clanId === clanId || m.teamB.clanId === clanId)
+		.filter((m) => m.format !== '1v1');
 
 	let wins = 0;
 	let losses = 0;
 	let lastMatchAt: number | null = null;
 
-	for (const beef of completed) {
-		if (!lastMatchAt) lastMatchAt = beef.updatedAt;
+	for (const beef of beefCompleted) {
+		if (!lastMatchAt || beef.updatedAt > lastMatchAt) lastMatchAt = beef.updatedAt;
 		if (beef.winnerId === clanId) wins++;
+		else losses++;
+	}
+
+	for (const m of arenaCompleted) {
+		if (!lastMatchAt || m.updatedAt > lastMatchAt) lastMatchAt = m.updatedAt;
+		const winnerClanId = m.winnerSide === 'A' ? m.teamA.clanId : m.winnerSide === 'B' ? m.teamB.clanId : null;
+		if (winnerClanId === clanId) wins++;
 		else losses++;
 	}
 
@@ -688,6 +1391,7 @@ export function createTournament(data: {
 	
 	tournaments.set(tournament.id, tournament);
 	tournamentTeams.set(tournament.id, new Map());
+	touch();
 	
 	return tournament;
 }
@@ -742,8 +1446,99 @@ export function registerForTournament(tournamentId: string, clanId: string, regi
 	
 	teams.set(clanId, team);
 	tournamentTeams.set(tournamentId, teams);
+	touch();
 	
 	return team;
+}
+
+
+// ============================================
+// LADDER FILTERING (Tabs)
+// ============================================
+export type LadderTab = 'SINGLES' | 'DOUBLES' | 'TEAM' | 'CLANS';
+
+function getClanXpLadderForFormats(formats: BeefMatch['format'][]): LadderEntry[] {
+	// Only RANKED, COMPLETED matches contribute to ladders.
+	const eligibleBeefs = getAllBeefMatches()
+		.filter((b) => b.status === 'COMPLETED')
+		.filter((b) => (b.queue ?? 'RANKED') === 'RANKED')
+		.filter((b) => formats.includes(b.format));
+
+	const eligibleArenas = getAllArenaMatches()
+		.filter((m) => m.scope === 'CLAN')
+		.filter((m) => m.status === 'COMPLETED')
+		.filter((m) => m.queue === 'RANKED')
+		.filter((m) => formats.includes(m.format));
+
+	// If there are no eligible ranked matches at all, return empty so UI can show a true empty-state.
+	if (eligibleBeefs.length + eligibleArenas.length === 0) return [];
+
+	const entries: LadderEntry[] = [];
+
+	for (const clan of clans.values()) {
+		const clanBeefs = eligibleBeefs.filter((b) => b.challengerClanId === clan.id || b.challengedClanId === clan.id);
+		const clanArenas = eligibleArenas.filter((m) => m.teamA.clanId === clan.id || m.teamB.clanId === clan.id);
+		if (clanBeefs.length + clanArenas.length === 0) continue;
+
+		let wins = 0;
+		let losses = 0;
+		let lastMatchAt: number | null = null;
+
+		const sortedBeefs = [...clanBeefs].sort((a, b) => b.updatedAt - a.updatedAt);
+		for (const beef of sortedBeefs) {
+			if (beef.winnerId === clan.id) wins++;
+			else losses++;
+			if (!lastMatchAt) lastMatchAt = beef.updatedAt;
+		}
+
+		const sortedArenas = [...clanArenas].sort((a, b) => b.updatedAt - a.updatedAt);
+		for (const m of sortedArenas) {
+			const winnerClanId = m.winnerSide === 'A' ? m.teamA.clanId : m.winnerSide === 'B' ? m.teamB.clanId : null;
+			if (winnerClanId === clan.id) wins++;
+			else losses++;
+			if (!lastMatchAt || m.updatedAt > lastMatchAt) lastMatchAt = m.updatedAt;
+		}
+
+		const matchesPlayed = wins + losses;
+		const xp = (matchesPlayed * 100) + (wins * 50);
+
+		entries.push({
+			rank: 0,
+			clanId: clan.id,
+			clan,
+			xp,
+			matchesPlayed,
+			wins,
+			losses,
+			lastMatchAt
+		});
+	}
+
+	entries.sort((a, b) => {
+		if (b.xp !== a.xp) return b.xp - a.xp;
+		const bt = b.lastMatchAt ?? 0;
+		const at = a.lastMatchAt ?? 0;
+		if (bt !== at) return bt - at;
+		return b.wins - a.wins;
+	});
+	entries.forEach((entry, i) => entry.rank = i + 1);
+
+	return entries;
+}
+
+export function getLadderForTab(tab: LadderTab): LadderEntry[] {
+	// Note: PLAYER-scoped ladders (Singles/Doubles/Team) will be powered by player/team match data.
+	// The V0 scaffold currently only has clan-scoped Beef matches, so only the CLANS tab will have data.
+	switch (tab) {
+		case 'CLANS':
+			// Clan ladder is 4v4-only, CLAN-scoped, Ranked.
+			return getClanXpLadderForFormats(['4v4']);
+		case 'SINGLES':
+		case 'DOUBLES':
+		case 'TEAM':
+		default:
+			return [];
+	}
 }
 
 // ============================================
@@ -760,7 +1555,14 @@ export function getLadder(): LadderEntry[] {
 		//
 		// Note: In the current V0 scaffold, completed match tracking exists for Beef Matches.
 		// As additional match types are activated, they should also contribute to XP.
-		const clanBeefs = getBeefMatchesForClan(clan.id).filter(b => b.status === 'COMPLETED');
+		const clanBeefs = getBeefMatchesForClan(clan.id)
+			.filter((b) => b.status === 'COMPLETED')
+			.filter((b) => (b.queue ?? 'RANKED') === 'RANKED');
+		const clanArenas = getAllArenaMatches()
+			.filter((m) => m.scope === 'CLAN')
+			.filter((m) => m.status === 'COMPLETED')
+			.filter((m) => m.queue === 'RANKED')
+			.filter((m) => m.teamA.clanId === clan.id || m.teamB.clanId === clan.id);
 		
 		let wins = 0;
 		let losses = 0;
@@ -773,6 +1575,14 @@ export function getLadder(): LadderEntry[] {
 			if (beef.winnerId === clan.id) wins++;
 			else losses++;
 			if (!lastMatchAt) lastMatchAt = beef.updatedAt;
+		}
+
+		const sortedArenas = clanArenas.sort((a, b) => b.updatedAt - a.updatedAt);
+		for (const m of sortedArenas) {
+			const winnerClanId = m.winnerSide === 'A' ? m.teamA.clanId : m.winnerSide === 'B' ? m.teamB.clanId : null;
+			if (winnerClanId === clan.id) wins++;
+			else losses++;
+			if (!lastMatchAt || m.updatedAt > lastMatchAt) lastMatchAt = m.updatedAt;
 		}
 		
 		const matchesPlayed = wins + losses;
@@ -813,6 +1623,7 @@ export function getStoreStats() {
 		users: users.size,
 		clans: clans.size,
 		beefMatches: beefMatches.size,
+		arenaMatches: arenaMatches.size,
 		tournaments: tournaments.size,
 		integrityEvents: integrityEvents.size
 	};

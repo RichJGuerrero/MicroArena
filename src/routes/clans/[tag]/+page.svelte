@@ -13,6 +13,9 @@
 	let loading = true;
 	let actionLoading = false;
 	let error = '';
+	let inviteUsername = '';
+	let inviteLoading = false;
+	let inviteMsg = '';
 	
 	$: tag = $page.params.tag;
 	$: isInThisClan = $currentUser?.clanId === clan?.id;
@@ -64,31 +67,28 @@
 		loading = false;
 	}
 	
-	async function handleJoin() {
+	async function sendInvite() {
 		if (!$currentUser || !clan) return;
-		error = '';
-		actionLoading = true;
-		
+		inviteMsg = '';
+		inviteLoading = true;
 		try {
-			const res = await fetch(`/api/clans/${clan.id}/join`, {
+			const res = await fetch(`/api/clans/${clan.id}/invite`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ userId: $currentUser.id })
+				body: JSON.stringify({ fromUserId: $currentUser.id, targetUsername: inviteUsername })
 			});
-			
+			const data = await res.json();
 			if (!res.ok) {
-				const data = await res.json();
-				error = data.error || 'Failed to join';
-				actionLoading = false;
+				inviteMsg = data.error || 'Failed to send invite';
+				inviteLoading = false;
 				return;
 			}
-			
-			await refreshUser();
-			await loadClan();
+			inviteMsg = 'Invite sent.';
+			inviteUsername = '';
 		} catch (e) {
-			error = 'Network error';
+			inviteMsg = 'Network error';
 		}
-		actionLoading = false;
+		inviteLoading = false;
 	}
 	
 	async function handleLeave() {
@@ -173,19 +173,45 @@
 				
 				<div class="clan-actions">
 					{#if canJoin}
-						<button on:click={handleJoin} disabled={actionLoading}>
-							{actionLoading ? 'Joining...' : 'Join Clan'}
-						</button>
+						<div class="invite-only">
+							<p class="text-muted">Invite-only. If you were invited, accept it from your Inbox.</p>
+							<a href="/inbox" class="btn secondary">Go to Inbox</a>
+						</div>
 					{:else if isInThisClan}
 						<button class="btn danger" on:click={handleLeave} disabled={actionLoading}>
 							{actionLoading ? 'Leaving...' : 'Leave Clan'}
 						</button>
 					{:else if !$isAuthenticated}
-						<a href="/login" class="btn">Login to Join</a>
+						<a href="/login" class="btn">Login</a>
 					{:else if $currentUser?.clanId}
 						<p class="text-muted">You're already in a clan</p>
 					{/if}
 				</div>
+
+				{#if isFounder && isInThisClan}
+					<div class="invite-form card">
+						<h3>Invite a player</h3>
+						<label for="inviteUsername">Username</label>
+						<div class="invite-row">
+							<input
+								id="inviteUsername"
+								type="text"
+								bind:value={inviteUsername}
+								placeholder="Type a username"
+							/>
+							<button
+								class="btn"
+								disabled={inviteLoading || !inviteUsername.trim()}
+								on:click={sendInvite}
+							>
+								{inviteLoading ? 'Sending...' : 'Send Invite'}
+							</button>
+						</div>
+						{#if inviteMsg}
+							<p class="text-muted mt-sm">{inviteMsg}</p>
+						{/if}
+					</div>
+				{/if}
 				
 				{#if error}
 					<div class="error-message mt-md">{error}</div>
@@ -268,7 +294,7 @@
 				
 				<div class="members-list">
 					{#each clan.members as member}
-						<div class="member-card card">
+						<a class="member-card card member-link" href="/users/{member.id}">
 							<div class="member-info">
 								<div class="avatar sm">{member.username.charAt(0)}</div>
 								<div>
@@ -281,7 +307,7 @@
 							<span class="integrity-badge {getIntegrityLevel(member.integrity)}">
 								{member.integrity}
 							</span>
-						</div>
+						</a>
 					{/each}
 				</div>
 			</section>
@@ -330,6 +356,45 @@
 	
 	.clan-header { margin-bottom: var(--space-xl); }
 	.clan-page section.card { margin-bottom: var(--space-xl); }
+
+	.invite-only {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-end;
+		gap: var(--space-sm);
+	}
+
+	.invite-form {
+		margin-top: var(--space-md);
+		padding: var(--space-lg);
+	}
+
+	.invite-row {
+		display: flex;
+		gap: var(--space-sm);
+		align-items: center;
+		margin-top: var(--space-sm);
+	}
+
+	.invite-row input {
+		flex: 1;
+		min-width: 220px;
+		background: var(--bg-tertiary);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-md);
+		padding: var(--space-sm) var(--space-md);
+		color: var(--text-primary);
+	}
+
+	@media (max-width: 640px) {
+		.invite-row {
+			flex-direction: column;
+			align-items: stretch;
+		}
+		.invite-row input {
+			min-width: 0;
+		}
+	}
 
 	.overview-grid {
 		display: grid;
@@ -464,6 +529,15 @@
 		justify-content: space-between;
 		align-items: center;
 		padding: var(--space-md);
+	}
+	.member-link {
+		text-decoration: none;
+		color: inherit;
+		cursor: pointer;
+	}
+	.member-link:focus-visible {
+		outline: 2px solid var(--accent);
+		outline-offset: 2px;
 	}
 	
 	.member-info {

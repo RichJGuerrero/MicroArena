@@ -26,11 +26,21 @@
 	}
 
 	// Competitive Overview (V0)
-	$: xp = stats?.xp ?? 0;
-	$: matchesPlayed = stats?.totalMatches ?? 0;
-	$: wins = stats?.wins ?? 0;
-	$: losses = stats?.losses ?? 0;
-	$: winRate = stats?.winRate ?? 0;
+	$: overallXp = stats?.overall.xp ?? 0;
+	$: overallMatchesPlayed = stats?.overall.matchesPlayed ?? 0;
+	$: overallWins = stats?.overall.wins ?? 0;
+	$: overallLosses = stats?.overall.losses ?? 0;
+	$: overallWinRate = stats?.overall.winRate ?? 0;
+
+	$: soloMatchesPlayed = stats?.solo.matchesPlayed ?? 0;
+	$: soloWins = stats?.solo.wins ?? 0;
+	$: soloLosses = stats?.solo.losses ?? 0;
+	$: soloWinRate = stats?.solo.winRate ?? 0;
+
+	$: clanMatchesPlayed = stats?.clan.matchesPlayed ?? 0;
+	$: clanWins = stats?.clan.wins ?? 0;
+	$: clanLosses = stats?.clan.losses ?? 0;
+	$: clanWinRate = stats?.clan.winRate ?? 0;
 	
 	$: if (!$isAuthenticated && !loading) {
 		goto('/login');
@@ -83,19 +93,19 @@
 				<h2>Competitive Overview</h2>
 				<div class="overview-grid">
 					<div class="stat">
-						<span class="stat-value text-accent">{xp}</span>
+						<span class="stat-value text-accent">{overallXp}</span>
 						<span class="stat-label">XP</span>
 					</div>
 					<div class="stat">
-						<span class="stat-value">{matchesPlayed}</span>
+						<span class="stat-value">{overallMatchesPlayed}</span>
 						<span class="stat-label">Matches Played</span>
 					</div>
 					<div class="stat">
-						<span class="stat-value" style="color: var(--success)">{wins}</span>
+						<span class="stat-value" style="color: var(--success)">{overallWins}</span>
 						<span class="stat-label">Wins</span>
 					</div>
 					<div class="stat">
-						<span class="stat-value" style="color: var(--error)">{losses}</span>
+						<span class="stat-value" style="color: var(--error)">{overallLosses}</span>
 						<span class="stat-label">Losses</span>
 					</div>
 					<div class="stat">
@@ -103,7 +113,36 @@
 						<span class="stat-label">Integrity</span>
 					</div>
 				</div>
-				<p class="overview-subtext text-muted mt-sm">Win Rate: <span class="text-accent">{winRate}%</span></p>
+				<p class="overview-subtext text-muted mt-sm">
+					Win Rate: <span class="text-accent">{overallWinRate}%</span>
+				</p>
+
+				<div class="split-overview mt-md">
+					<div class="split-card">
+						<div class="split-title">Solo (1v1)</div>
+						<div class="split-line text-secondary">
+							<span class="mono">{soloWins}W</span> <span class="text-muted">-</span>
+							<span class="mono">{soloLosses}L</span>
+							<span class="pill">{soloMatchesPlayed} matches</span>
+							<span class="pill">{soloWinRate}% WR</span>
+						</div>
+						<p class="text-muted small mt-xs">Solo matches never affect clan stats.</p>
+					</div>
+					<div class="split-card">
+						<div class="split-title">Clan (2v2+)</div>
+						<div class="split-line text-secondary">
+							<span class="mono">{clanWins}W</span> <span class="text-muted">-</span>
+							<span class="mono">{clanLosses}L</span>
+							<span class="pill">{clanMatchesPlayed} matches</span>
+							<span class="pill">{clanWinRate}% WR</span>
+						</div>
+						{#if !clan}
+							<p class="text-muted small mt-xs">Join a clan to start team matches.</p>
+						{:else}
+							<p class="text-muted small mt-xs">Team play counts toward your clan's XP ladder.</p>
+						{/if}
+					</div>
+				</div>
 			</section>
 			
 			<section class="profile-section card">
@@ -142,9 +181,16 @@
 			</section>
 
 			<section class="profile-section card">
-				<h2>Recent Matches</h2>
+				<h2>Recent Clan Matches</h2>
 				{#if recentMatches.length === 0}
-					<p class="text-muted">No matches yet. Your first win starts with a Beef Match.</p>
+					<p class="text-muted">
+						No clan matches yet.
+						{#if !clan}
+							Join a clan to start 2v2+ team matches. Solo (1v1) is coming soon.
+						{:else}
+							Start a Beef Match to begin building your team record.
+						{/if}
+					</p>
 				{:else}
 					<div class="match-list">
 						{#each recentMatches as m (m.id)}
@@ -323,6 +369,44 @@
 	.overview-subtext {
 		font-size: 0.9375rem;
 	}
+
+	.split-overview {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: var(--space-md);
+	}
+
+	.split-card {
+		background: var(--bg-tertiary);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-lg);
+		padding: var(--space-md);
+	}
+
+	.split-title {
+		font-weight: 800;
+		letter-spacing: 0.02em;
+		margin-bottom: var(--space-xs);
+	}
+
+	.split-line {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--space-sm);
+	}
+
+	.mono { font-family: var(--font-mono); font-weight: 700; }
+	.small { font-size: 0.875rem; }
+
+	.pill {
+		border: 1px solid var(--border);
+		background: rgba(255, 255, 255, 0.02);
+		border-radius: var(--radius-full);
+		padding: 2px 10px;
+		font-size: 0.75rem;
+		color: var(--text-muted);
+	}
 	
 	.integrity-display {
 		display: flex;
@@ -412,6 +496,7 @@
 	@media (max-width: 640px) {
 		.profile-identity { flex-direction: column; text-align: center; }
 		.overview-grid { grid-template-columns: repeat(2, 1fr); }
+		.split-overview { grid-template-columns: 1fr; }
 	}
 
 
