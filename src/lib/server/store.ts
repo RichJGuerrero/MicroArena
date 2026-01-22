@@ -121,10 +121,16 @@ function loadFromDisk() {
 	}
 
 	// Integrity
-	integrityEvents.clear();
-	for (const ev of readJson(FILES.integrityEvents, [] as any[])) {
-		const e = ev as any;
-		if (e?.id) integrityEvents.set(e.id, e);
+	// Integrity
+integrityEvents.clear();
+for (const ev of readJson(FILES.integrityEvents, [] as any[])) {
+  // Ensure we always have an id
+  const id = (ev && typeof ev === 'object' && 'id' in ev) ? (ev as any).id : undefined;
+  if (typeof id === 'string' && id.length > 0) {
+    integrityEvents.set(id, ev as any);
+  }
+}
+
 	}
 
 	// Beef matches
@@ -157,17 +163,7 @@ function loadFromDisk() {
 
 	// Arena matches
 	arenaMatches.clear();
-	for (const raw of readJson(FILES.arenaMatches, [] as any[])) {
-		const m = raw as any;
-		// Backward-compatible defaults (older saves may not include these fields)
-		if (m.reportA === undefined) m.reportA = null;
-		if (m.reportB === undefined) m.reportB = null;
-		if (m.reportABy === undefined) m.reportABy = null;
-		if (m.reportBBy === undefined) m.reportBBy = null;
-		if (m.reportAAt === undefined) m.reportAAt = null;
-		if (m.reportBAt === undefined) m.reportBAt = null;
-		if (m.disputedAt === undefined) m.disputedAt = null;
-		if (m.disputeReason === undefined) m.disputeReason = null;
+	for (const m of readJson(FILES.arenaMatches, [] as any[])) {
 		arenaMatches.set(m.id, m as any);
 	}
 
@@ -176,7 +172,7 @@ function loadFromDisk() {
 	for (const inv of readJson(FILES.clanInvites, [] as any[])) {
 		clanInvites.set(inv.id, inv as any);
 	}
-}
+
 
 function saveToDisk() {
 	writeJson(FILES.users, Array.from(users.values()));
@@ -1235,59 +1231,6 @@ export function joinArenaMatch(id: string, userId: string, side: ArenaSideKey): 
 	}
 
 	match.updatedAt = Date.now();
-	arenaMatches.set(id, match);
-	touch();
-	return match;
-}
-
-export function reportArenaMatchResult(id: string, reporterId: string, reportedWinnerSide: ArenaSideKey): ArenaMatch {
-	const match = arenaMatches.get(id);
-	if (!match) throw new Error('Match not found');
-	if (match.status === 'COMPLETED') return match;
-	if (match.status === 'CANCELLED' || match.status === 'DECLINED' || match.status === 'PENDING') {
-		throw new Error('This match cannot be reported in its current state');
-	}
-	if (!(match.status === 'LIVE' || match.status === 'DISPUTED')) {
-		throw new Error('Match results can only be reported once the match is LIVE');
-	}
-	if (reportedWinnerSide !== 'A' && reportedWinnerSide !== 'B') {
-		throw new Error('reportedWinnerSide must be A or B');
-	}
-
-	const isA = match.teamA.playerIds.includes(reporterId);
-	const isB = match.teamB.playerIds.includes(reporterId);
-	if (!isA && !isB) throw new Error('Only match participants can report results');
-
-	const now = Date.now();
-	if (isA) {
-		match.reportA = reportedWinnerSide;
-		match.reportABy = reporterId;
-		match.reportAAt = now;
-	} else {
-		match.reportB = reportedWinnerSide;
-		match.reportBBy = reporterId;
-		match.reportBAt = now;
-	}
-
-	// Resolve if both sides have reported.
-	const a = match.reportA ?? null;
-	const b = match.reportB ?? null;
-	if (a && b) {
-		if (a === b) {
-			match.winnerSide = a;
-			match.status = 'COMPLETED';
-			match.completedAt = now;
-			match.disputedAt = null;
-			match.disputeReason = null;
-		} else {
-			match.winnerSide = null;
-			match.status = 'DISPUTED';
-			match.disputedAt = now;
-			match.disputeReason = `Conflicting reports (A→${a}, B→${b})`;
-		}
-	}
-
-	match.updatedAt = now;
 	arenaMatches.set(id, match);
 	touch();
 	return match;
