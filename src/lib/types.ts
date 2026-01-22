@@ -334,37 +334,6 @@ export interface ArenaMatchView {
 }
 
 // ============================================
-<<<<<<< HEAD
-// INBOX + CLAN INVITES
-// ============================================
-
-export type ClanInviteStatus = "PENDING" | "ACCEPTED" | "DECLINED" | "CANCELLED";
-
-export interface ClanInvite {
-	id: string;
-	clanId: string;
-	toUserId: string;
-	fromUserId: string;
-	status: ClanInviteStatus;
-	createdAt: number;
-	updatedAt: number;
-}
-
-export type InboxItemType = "CLAN_INVITE" | "MATCH_CHALLENGE";
-
-export interface InboxItemView {
-	type: InboxItemType;
-	id: string;
-	createdAt: number;
-	title: string;
-	details: string;
-	/** Optional destination link for quick navigation */
-	href?: string;
-}
-
-// ============================================
-=======
->>>>>>> 393556e65ae20a7804eb4ab3df59bee6f1b2e3bd
 // LADDER TYPES
 // ============================================
 export interface LadderEntry {
@@ -385,6 +354,34 @@ export interface ApiResponse<T = void> {
 	success: boolean;
 	data?: T;
 	error?: string;
+}
+
+
+
+// ============================================
+// CLAN INVITES + INBOX TYPES
+// ============================================
+export type ClanInviteStatus = 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'CANCELLED';
+
+export interface ClanInvite {
+	id: string;
+	clanId: string;
+	toUserId: string;
+	fromUserId: string;
+	status: ClanInviteStatus;
+	createdAt: number;
+	updatedAt: number;
+}
+
+export type InboxItemType = 'CLAN_INVITE' | 'MATCH_CHALLENGE';
+
+export interface InboxItemView {
+	type: InboxItemType;
+	id: string;
+	createdAt: number;
+	title: string;
+	details: string;
+	href: string;
 }
 
 // ============================================

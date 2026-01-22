@@ -1,23 +1,5 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-<<<<<<< HEAD
-import { completeArenaMatch } from '$lib/server/store';
-import type { ArenaSideKey } from '$lib/types';
-
-export const POST: RequestHandler = async ({ params, request }) => {
-	try {
-		const body = await request.json();
-		const winnerSide = (body.winnerSide ?? 'A') as ArenaSideKey;
-		const scoreA = typeof body.scoreA === 'number' ? body.scoreA : undefined;
-		const scoreB = typeof body.scoreB === 'number' ? body.scoreB : undefined;
-
-		if (winnerSide !== 'A' && winnerSide !== 'B') {
-			return json({ error: 'winnerSide must be A or B' }, { status: 400 });
-		}
-
-		const match = completeArenaMatch(params.id, winnerSide, scoreA, scoreB);
-		return json({ match });
-=======
 import { completeArenaMatch, getArenaMatch, getArenaMatchViews } from '$lib/server/store';
 import type { ArenaSideKey } from '$lib/types';
 
@@ -50,7 +32,6 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		completeArenaMatch(id, winnerSide, scoreA, scoreB);
 		const view = getArenaMatchViews().find((x) => x.match.id === id) ?? null;
 		return json({ match: view?.match ?? null, view });
->>>>>>> 393556e65ae20a7804eb4ab3df59bee6f1b2e3bd
 	} catch (err) {
 		const message = err instanceof Error ? err.message : 'Failed to complete match';
 		return json({ error: message }, { status: 400 });

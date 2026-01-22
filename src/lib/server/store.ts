@@ -11,18 +11,9 @@ import type {
 	Tournament,
 	TournamentTeam,
 	Match,
-<<<<<<< HEAD
 	ArenaMatch,
 	ArenaMatchView,
 	ArenaSideKey,
-=======
-<<<<<<< HEAD
-	ArenaMatch,
-	ArenaMatchView,
-	ArenaSideKey,
-=======
->>>>>>> fda08aa2bb71e02a1c0284073d549e1312947da3
->>>>>>> 393556e65ae20a7804eb4ab3df59bee6f1b2e3bd
 	MatchQueue,
 	LadderEntry,
 	UserStats,
@@ -48,34 +39,48 @@ const tournamentTeams = new Map<string, Map<string, TournamentTeam>>(); // tourn
 const matches = new Map<string, Match>();
 const ladderRatings = new Map<string, number>(); // clanId -> rating
 
+
+// Clan invites (invite-only clans)
+const clanInvites = new Map<string, ClanInvite>();
+
 // Match Board / Direct Challenges (CMG/GB style)
 const arenaMatches = new Map<string, ArenaMatch>();
 
-<<<<<<< HEAD
-// Clan Invites (invite-only clans)
-const clanInvites = new Map<string, ClanInvite>();
 
 // ============================================
-// V0 DISK PERSISTENCE
+// PERSISTENCE (Local dev)
 // ============================================
-// Goal: keep the platform usable between restarts without adding a full DB yet.
-// This is local-dev friendly and can later be swapped for Postgres.
+// Persists in-memory state to ./data/*.json so server restarts don't wipe V0 progress.
+// This is NOT a production persistence layer.
 
-const DATA_DIR = path.join(process.cwd(), 'data');
+const DATA_DIR = path.resolve(process.cwd(), 'data');
 
-function ensureDataDir(): void {
+const FILES = {
+	users: 'users.json',
+	clans: 'clans.json',
+	clanMembers: 'clanMembers.json',
+	integrityEvents: 'integrityEvents.json',
+	beefMatches: 'beefMatches.json',
+	tournaments: 'tournaments.json',
+	tournamentTeams: 'tournamentTeams.json',
+	ladderRatings: 'ladderRatings.json',
+	arenaMatches: 'arenaMatches.json',
+	clanInvites: 'clanInvites.json'
+} as const;
+
+function ensureDataDir() {
 	try {
-		if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+		fs.mkdirSync(DATA_DIR, { recursive: true });
 	} catch {
-		// If persistence fails, we silently fall back to in-memory V0.
+		// ignore
 	}
 }
 
-function readJson<T>(filename: string, fallback: T): T {
+function readJson<T>(fileName: string, fallback: T): T {
 	try {
-		const full = path.join(DATA_DIR, filename);
-		if (!fs.existsSync(full)) return fallback;
-		const raw = fs.readFileSync(full, 'utf8');
+		const filePath = path.join(DATA_DIR, fileName);
+		if (!fs.existsSync(filePath)) return fallback;
+		const raw = fs.readFileSync(filePath, 'utf8');
 		if (!raw.trim()) return fallback;
 		return JSON.parse(raw) as T;
 	} catch {
@@ -83,109 +88,123 @@ function readJson<T>(filename: string, fallback: T): T {
 	}
 }
 
-function writeJsonAtomic(filename: string, data: unknown): void {
-	try {
-		ensureDataDir();
-		const full = path.join(DATA_DIR, filename);
-		const tmp = `${full}.tmp`;
-		fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf8');
-		fs.renameSync(tmp, full);
-	} catch {
-		// If persistence fails, keep going in memory.
-	}
+function writeJson(fileName: string, value: unknown) {
+	ensureDataDir();
+	const filePath = path.join(DATA_DIR, fileName);
+	const tmpPath = filePath + '.tmp';
+	const json = JSON.stringify(value, null, 2);
+	fs.writeFileSync(tmpPath, json, 'utf8');
+	fs.renameSync(tmpPath, filePath);
 }
 
-let saveTimer: NodeJS.Timeout | null = null;
-function touch(): void {
-	// Debounce disk writes to avoid spamming the filesystem.
-	if (saveTimer) return;
-	saveTimer = setTimeout(() => {
-		saveTimer = null;
-		saveAll();
-	}, 150);
-}
-
-function saveAll(): void {
-	// Serialize maps into JSON-friendly structures.
-	writeJsonAtomic('users.json', Array.from(users.values()));
-	writeJsonAtomic('clans.json', Array.from(clans.values()));
-	writeJsonAtomic(
-		'clanMembers.json',
-		Object.fromEntries(Array.from(clanMembers.entries()).map(([cid, set]) => [cid, Array.from(set.values())]))
-	);
-	writeJsonAtomic('integrityEvents.json', Array.from(integrityEvents.values()));
-	writeJsonAtomic('beefMatches.json', Array.from(beefMatches.values()));
-	writeJsonAtomic('tournaments.json', Array.from(tournaments.values()));
-	writeJsonAtomic(
-		'tournamentTeams.json',
-		Object.fromEntries(
-			Array.from(tournamentTeams.entries()).map(([tid, teamMap]) => [tid, Array.from(teamMap.values())])
-		)
-	);
-	writeJsonAtomic('ladderRatings.json', Object.fromEntries(Array.from(ladderRatings.entries())));
-	writeJsonAtomic('arenaMatches.json', Array.from(arenaMatches.values()));
-	writeJsonAtomic('clanInvites.json', Array.from(clanInvites.values()));
-}
-
-function loadAll(): void {
+function loadFromDisk() {
 	ensureDataDir();
 
 	// Users
-	for (const u of readJson('users.json', [] as User[])) users.set(u.id, u);
+	users.clear();
+	for (const u of readJson(FILES.users, [] as any[])) {
+		users.set(u.id, u as any);
+	}
 
 	// Clans
-	for (const c of readJson('clans.json', [] as Clan[])) clans.set(c.id, c);
-
-	// Clan Members
-	const cm = readJson('clanMembers.json', {} as Record<string, string[]>);
-	for (const [cid, ids] of Object.entries(cm)) clanMembers.set(cid, new Set(ids));
-
-	// Backfill membership sets from user.clanId (keeps state resilient to partial files)
-	for (const u of users.values()) {
-		if (!u.clanId) continue;
-		const set = clanMembers.get(u.clanId) ?? new Set<string>();
-		set.add(u.id);
-		clanMembers.set(u.clanId, set);
+	clans.clear();
+	for (const c of readJson(FILES.clans, [] as any[])) {
+		clans.set(c.id, c as any);
 	}
 
-	// Integrity Events
-	for (const ev of readJson('integrityEvents.json', [] as IntegrityEvent[])) integrityEvents.set(ev.id, ev);
+	// Clan members
+	clanMembers.clear();
+	const cm = readJson(FILES.clanMembers, {} as Record<string, string[]>);
+	for (const [clanId, members] of Object.entries(cm)) {
+		clanMembers.set(clanId, new Set(members));
+	}
 
-	// Beef Matches
-	for (const bm of readJson('beefMatches.json', [] as BeefMatch[])) beefMatches.set(bm.id, bm);
+	// Integrity
+	integrityEvents.length = 0;
+	for (const ev of readJson(FILES.integrityEvents, [] as any[])) {
+		integrityEvents.push(ev as any);
+	}
+
+	// Beef matches
+	beefMatches.clear();
+	for (const b of readJson(FILES.beefMatches, [] as any[])) {
+		beefMatches.set(b.id, b as any);
+	}
 
 	// Tournaments
-	for (const t of readJson('tournaments.json', [] as Tournament[])) tournaments.set(t.id, t);
-
-	// Tournament Teams
-	const tts = readJson('tournamentTeams.json', {} as Record<string, TournamentTeam[]>);
-	for (const [tid, teams] of Object.entries(tts)) {
-		const map = new Map<string, TournamentTeam>();
-		for (const team of teams) map.set(team.clanId, team);
-		tournamentTeams.set(tid, map);
+	tournaments.clear();
+	for (const t of readJson(FILES.tournaments, [] as any[])) {
+		tournaments.set(t.id, t as any);
 	}
 
-	// Ladder Ratings
-	const lr = readJson('ladderRatings.json', {} as Record<string, number>);
-	for (const [cid, rating] of Object.entries(lr)) ladderRatings.set(cid, Number(rating));
+	// Tournament teams
+	tournamentTeams.clear();
+	const tt = readJson(FILES.tournamentTeams, {} as Record<string, any[]>);
+	for (const [tournamentId, teams] of Object.entries(tt)) {
+		const byClan = new Map<string, any>();
+		for (const team of teams) byClan.set(team.clanId, team);
+		tournamentTeams.set(tournamentId, byClan as any);
+	}
 
-	// Arena Matches
-	for (const am of readJson('arenaMatches.json', [] as ArenaMatch[])) arenaMatches.set(am.id, am);
+	// Ladder ratings
+	ladderRatings.clear();
+	const lr = readJson(FILES.ladderRatings, {} as Record<string, number>);
+	for (const [clanId, rating] of Object.entries(lr)) {
+		ladderRatings.set(clanId, rating);
+	}
 
-	// Clan Invites
-	for (const inv of readJson('clanInvites.json', [] as ClanInvite[])) clanInvites.set(inv.id, inv);
+	// Arena matches
+	arenaMatches.clear();
+	for (const m of readJson(FILES.arenaMatches, [] as any[])) {
+		arenaMatches.set(m.id, m as any);
+	}
 
-	// Recompute clan integrity/memberCount so UI stays consistent.
-	for (const cid of clans.keys()) {
-		recalculateClanIntegrity(cid);
+	// Clan invites
+	clanInvites.clear();
+	for (const inv of readJson(FILES.clanInvites, [] as any[])) {
+		clanInvites.set(inv.id, inv as any);
 	}
 }
 
-// Load persisted state once at module init (server boot)
-loadAll();
+function saveToDisk() {
+	writeJson(FILES.users, Array.from(users.values()));
+	writeJson(FILES.clans, Array.from(clans.values()));
+	writeJson(
+		FILES.clanMembers,
+		Object.fromEntries(Array.from(clanMembers.entries()).map(([clanId, members]) => [clanId, Array.from(members.values())]))
+	);
+	writeJson(FILES.integrityEvents, integrityEvents);
+	writeJson(FILES.beefMatches, Array.from(beefMatches.values()));
+	writeJson(FILES.tournaments, Array.from(tournaments.values()));
+	writeJson(
+		FILES.tournamentTeams,
+		Object.fromEntries(
+			Array.from(tournamentTeams.entries()).map(([tournamentId, teamsByClan]) => [
+				tournamentId,
+				Array.from((teamsByClan as any).values())
+			])
+		)
+	);
+	writeJson(FILES.ladderRatings, Object.fromEntries(Array.from(ladderRatings.entries())));
+	writeJson(FILES.arenaMatches, Array.from(arenaMatches.values()));
+	writeJson(FILES.clanInvites, Array.from(clanInvites.values()));
+}
 
-=======
->>>>>>> 393556e65ae20a7804eb4ab3df59bee6f1b2e3bd
+let saveTimer: NodeJS.Timeout | null = null;
+function touch() {
+	if (saveTimer) return;
+	saveTimer = setTimeout(() => {
+		saveTimer = null;
+		try {
+			saveToDisk();
+		} catch {
+			// ignore
+		}
+	}, 250);
+}
+
+loadFromDisk();
+
 // ============================================
 // ID GENERATION
 // ============================================
@@ -348,10 +367,6 @@ export function getUserStats(userId: string): UserStats {
 		};
 	}
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 393556e65ae20a7804eb4ab3df59bee6f1b2e3bd
 	// Solo stats are derived from completed PLAYER-scoped 1v1 matches.
 	let soloWins = 0;
 	let soloLosses = 0;
@@ -364,10 +379,11 @@ export function getUserStats(userId: string): UserStats {
 		const inB = m.teamB.playerIds.includes(userId);
 		if (!inA && !inB) continue;
 		const won = (inA && m.winnerSide === 'A') || (inB && m.winnerSide === 'B');
-		if (won) soloWins++; else soloLosses++;
+		if (won) soloWins++;
+		else soloLosses++;
 	}
 	const soloMatchesPlayed = soloWins + soloLosses;
-	const soloXp = (soloMatchesPlayed * 100) + (soloWins * 50);
+	const soloXp = soloMatchesPlayed * 100 + soloWins * 50;
 	const solo = {
 		matchesPlayed: soloMatchesPlayed,
 		xp: soloXp,
@@ -375,43 +391,22 @@ export function getUserStats(userId: string): UserStats {
 		losses: soloLosses,
 		winRate: soloMatchesPlayed > 0 ? Math.round((soloWins / soloMatchesPlayed) * 100) : 0
 	};
-<<<<<<< HEAD
-=======
-=======
-	// V0: "Solo" matches are not implemented yet (future queue / direct challenge).
-	// We still return a dedicated bucket so UI + future features don't mix solo into clan stats.
-	const solo = empty();
->>>>>>> fda08aa2bb71e02a1c0284073d549e1312947da3
->>>>>>> 393556e65ae20a7804eb4ab3df59bee6f1b2e3bd
 
-	// Clan/team stats are derived from completed Beef Matches in the user's current clan.
-	// IMPORTANT: 1v1 is treated as SOLO-only and does not affect clan stats.
+	// Clan/team stats are derived from completed, RANKED matches in the user's current clan.
 	let clanWins = 0;
 	let clanLosses = 0;
 	let beefWins = 0;
 	let beefLosses = 0;
-	let tournamentWins = 0;
+	let tournamentWins = 0; // placeholder (no bracket results tracked yet)
 
 	if (user.clanId) {
 		const clanBeefs = getBeefMatchesForClan(user.clanId)
 			.filter((b) => b.status === 'COMPLETED')
-<<<<<<< HEAD
 			.filter((b) => (b.queue ?? 'RANKED') === 'RANKED')
-=======
-<<<<<<< HEAD
-			.filter((b) => (b.queue ?? 'RANKED') === 'RANKED')
-=======
->>>>>>> fda08aa2bb71e02a1c0284073d549e1312947da3
->>>>>>> 393556e65ae20a7804eb4ab3df59bee6f1b2e3bd
+			// 1v1 is treated as solo play.
 			.filter((b) => b.format !== '1v1');
 
 		for (const beef of clanBeefs) {
-			const p1 = beef.challengerPlayerIds ?? [];
-			const p2 = beef.challengedPlayerIds ?? [];
-			const hasRoster = p1.length > 0 || p2.length > 0;
-			const played = !hasRoster || p1.includes(userId) || p2.includes(userId);
-			if (!played) continue;
-
 			const won = beef.winnerId === user.clanId;
 			if (won) {
 				clanWins++;
@@ -420,37 +415,26 @@ export function getUserStats(userId: string): UserStats {
 				clanLosses++;
 				beefLosses++;
 			}
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 393556e65ae20a7804eb4ab3df59bee6f1b2e3bd
 		}
 
 		const clanArenas = getAllArenaMatches()
 			.filter((m) => m.scope === 'CLAN')
 			.filter((m) => m.status === 'COMPLETED')
 			.filter((m) => m.queue === 'RANKED')
+			// 1v1 is treated as solo play.
+			.filter((m) => m.format !== '1v1')
 			.filter((m) => m.teamA.clanId === user.clanId || m.teamB.clanId === user.clanId);
 
 		for (const m of clanArenas) {
-			// If rosters are tracked, only count if the user participated.
-			const rosterKnown = m.teamA.playerIds.length > 0 || m.teamB.playerIds.length > 0;
-			const played = !rosterKnown || m.teamA.playerIds.includes(userId) || m.teamB.playerIds.includes(userId);
-			if (!played) continue;
-
-			const winnerClanId = m.winnerSide === 'A' ? m.teamA.clanId : m.winnerSide === 'B' ? m.teamB.clanId : null;
-			const won = winnerClanId === user.clanId;
-			if (won) clanWins++; else clanLosses++;
-<<<<<<< HEAD
-=======
-=======
->>>>>>> fda08aa2bb71e02a1c0284073d549e1312947da3
->>>>>>> 393556e65ae20a7804eb4ab3df59bee6f1b2e3bd
+			const winnerClanId =
+				m.winnerSide === 'A' ? m.teamA.clanId : m.winnerSide === 'B' ? m.teamB.clanId : null;
+			if (winnerClanId === user.clanId) clanWins++;
+			else clanLosses++;
 		}
 	}
 
 	const clanMatchesPlayed = clanWins + clanLosses;
-	const clanXp = (clanMatchesPlayed * 100) + (clanWins * 50);
+	const clanXp = clanMatchesPlayed * 100 + clanWins * 50;
 	const clan = {
 		matchesPlayed: clanMatchesPlayed,
 		xp: clanXp,
@@ -459,10 +443,10 @@ export function getUserStats(userId: string): UserStats {
 		winRate: clanMatchesPlayed > 0 ? Math.round((clanWins / clanMatchesPlayed) * 100) : 0
 	};
 
-	const overallMatchesPlayed = solo.matchesPlayed + clan.matchesPlayed;
-	const overallWins = solo.wins + clan.wins;
-	const overallLosses = solo.losses + clan.losses;
-	const overallXp = solo.xp + clan.xp;
+	const overallWins = soloWins + clanWins;
+	const overallLosses = soloLosses + clanLosses;
+	const overallMatchesPlayed = overallWins + overallLosses;
+	const overallXp = soloXp + clanXp;
 	const overall = {
 		matchesPlayed: overallMatchesPlayed,
 		xp: overallXp,
@@ -480,6 +464,7 @@ export function getUserStats(userId: string): UserStats {
 		tournamentWins
 	};
 }
+
 
 // ============================================
 // CLAN OPERATIONS
@@ -1084,10 +1069,7 @@ export function createArenaMatch(data: {
 	}
 
 	arenaMatches.set(match.id, match);
-<<<<<<< HEAD
 	touch();
-=======
->>>>>>> 393556e65ae20a7804eb4ab3df59bee6f1b2e3bd
 	return match;
 }
 
@@ -1131,10 +1113,7 @@ export function respondToArenaChallenge(id: string, responderId: string, accept:
 			match.status = 'DECLINED';
 			match.updatedAt = Date.now();
 			arenaMatches.set(id, match);
-<<<<<<< HEAD
 			touch();
-=======
->>>>>>> 393556e65ae20a7804eb4ab3df59bee6f1b2e3bd
 			return match;
 		}
 
@@ -1150,10 +1129,7 @@ export function respondToArenaChallenge(id: string, responderId: string, accept:
 			match.status = 'DECLINED';
 			match.updatedAt = Date.now();
 			arenaMatches.set(id, match);
-<<<<<<< HEAD
 			touch();
-=======
->>>>>>> 393556e65ae20a7804eb4ab3df59bee6f1b2e3bd
 			return match;
 		}
 		// Accept: roster seed and open join
@@ -1172,10 +1148,7 @@ export function respondToArenaChallenge(id: string, responderId: string, accept:
 
 	match.updatedAt = Date.now();
 	arenaMatches.set(id, match);
-<<<<<<< HEAD
 	touch();
-=======
->>>>>>> 393556e65ae20a7804eb4ab3df59bee6f1b2e3bd
 	return match;
 }
 
@@ -1236,10 +1209,7 @@ export function joinArenaMatch(id: string, userId: string, side: ArenaSideKey): 
 
 	match.updatedAt = Date.now();
 	arenaMatches.set(id, match);
-<<<<<<< HEAD
 	touch();
-=======
->>>>>>> 393556e65ae20a7804eb4ab3df59bee6f1b2e3bd
 	return match;
 }
 
@@ -1258,10 +1228,7 @@ export function completeArenaMatch(id: string, winnerSide: ArenaSideKey, scoreA?
 	match.completedAt = Date.now();
 	match.updatedAt = Date.now();
 	arenaMatches.set(id, match);
-<<<<<<< HEAD
 	touch();
-=======
->>>>>>> 393556e65ae20a7804eb4ab3df59bee6f1b2e3bd
 	return match;
 }
 
@@ -1326,10 +1293,6 @@ function beefToMatch(beef: BeefMatch): Match {
 }
 
 export function getRecentMatchesForClan(clanId: string, limit = 5): Match[] {
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 393556e65ae20a7804eb4ab3df59bee6f1b2e3bd
 	const items: { t: number; m: Match }[] = [];
 
 	const beefs = getBeefMatchesForClan(clanId)
@@ -1346,6 +1309,7 @@ export function getRecentMatchesForClan(clanId: string, limit = 5): Match[] {
 		.filter((m) => m.scope === 'CLAN')
 		.filter((m) => m.status === 'COMPLETED')
 		.filter((m) => m.queue === 'RANKED')
+		.filter((m) => m.format !== '1v1')
 		.filter((m) => m.teamA.clanId === clanId || m.teamB.clanId === clanId);
 
 	for (const a of arenas) {
@@ -1358,19 +1322,8 @@ export function getRecentMatchesForClan(clanId: string, limit = 5): Match[] {
 
 	items.sort((x, y) => y.t - x.t);
 	return items.slice(0, Math.max(0, limit)).map((x) => x.m);
-<<<<<<< HEAD
-=======
-=======
-	const completed = getBeefMatchesForClan(clanId)
-		.filter(b => b.status === 'COMPLETED')
-		// 1v1 is treated as solo play and should not appear in clan match history.
-		.filter(b => b.format !== '1v1')
-		.sort((a, b) => b.updatedAt - a.updatedAt)
-		.slice(0, Math.max(0, limit));
-	return completed.map(beefToMatch);
->>>>>>> fda08aa2bb71e02a1c0284073d549e1312947da3
->>>>>>> 393556e65ae20a7804eb4ab3df59bee6f1b2e3bd
 }
+
 
 export function getRecentMatchesForUser(userId: string, limit = 5): Match[] {
 	const user = users.get(userId);
@@ -1386,10 +1339,6 @@ export function getRecentMatchesForUser(userId: string, limit = 5): Match[] {
 }
 
 export function getClanStats(clanId: string): ClanStats {
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 393556e65ae20a7804eb4ab3df59bee6f1b2e3bd
 	const beefCompleted = getBeefMatchesForClan(clanId)
 		.filter((b) => b.status === 'COMPLETED')
 		.filter((b) => (b.queue ?? 'RANKED') === 'RANKED')
@@ -1400,18 +1349,8 @@ export function getClanStats(clanId: string): ClanStats {
 		.filter((m) => m.scope === 'CLAN')
 		.filter((m) => m.status === 'COMPLETED')
 		.filter((m) => m.queue === 'RANKED')
-		.filter((m) => m.teamA.clanId === clanId || m.teamB.clanId === clanId)
-		.filter((m) => m.format !== '1v1');
-<<<<<<< HEAD
-=======
-=======
-	const completed = getBeefMatchesForClan(clanId)
-		.filter(b => b.status === 'COMPLETED')
-		// 1v1 is a solo format and does not count toward clan stats.
-		.filter(b => b.format !== '1v1')
-		.sort((a, b) => b.updatedAt - a.updatedAt);
->>>>>>> fda08aa2bb71e02a1c0284073d549e1312947da3
->>>>>>> 393556e65ae20a7804eb4ab3df59bee6f1b2e3bd
+		.filter((m) => m.format !== '1v1')
+		.filter((m) => m.teamA.clanId === clanId || m.teamB.clanId === clanId);
 
 	let wins = 0;
 	let losses = 0;
@@ -1431,7 +1370,7 @@ export function getClanStats(clanId: string): ClanStats {
 	}
 
 	const matchesPlayed = wins + losses;
-	const xp = (matchesPlayed * 100) + (wins * 50);
+	const xp = matchesPlayed * 100 + wins * 50;
 	const winRate = matchesPlayed > 0 ? Math.round((wins / matchesPlayed) * 100) : 0;
 
 	return {
@@ -1444,6 +1383,7 @@ export function getClanStats(clanId: string): ClanStats {
 		lastMatchAt
 	};
 }
+
 
 // ============================================
 // TOURNAMENT OPERATIONS
@@ -1547,10 +1487,6 @@ export type LadderTab = 'SINGLES' | 'DOUBLES' | 'TEAM' | 'CLANS';
 
 function getClanXpLadderForFormats(formats: BeefMatch['format'][]): LadderEntry[] {
 	// Only RANKED, COMPLETED matches contribute to ladders.
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 393556e65ae20a7804eb4ab3df59bee6f1b2e3bd
 	const eligibleBeefs = getAllBeefMatches()
 		.filter((b) => b.status === 'COMPLETED')
 		.filter((b) => (b.queue ?? 'RANKED') === 'RANKED')
@@ -1564,62 +1500,25 @@ function getClanXpLadderForFormats(formats: BeefMatch['format'][]): LadderEntry[
 
 	// If there are no eligible ranked matches at all, return empty so UI can show a true empty-state.
 	if (eligibleBeefs.length + eligibleArenas.length === 0) return [];
-<<<<<<< HEAD
-=======
-=======
-	const eligibleAll = getAllBeefMatches()
-		.filter(b => b.status === 'COMPLETED')
-		.filter(b => (b.queue ?? 'RANKED') === 'RANKED')
-		.filter(b => formats.includes(b.format));
-
-	// If there are no eligible ranked matches at all, return empty so UI can show a true empty-state.
-	if (eligibleAll.length === 0) return [];
->>>>>>> fda08aa2bb71e02a1c0284073d549e1312947da3
->>>>>>> 393556e65ae20a7804eb4ab3df59bee6f1b2e3bd
 
 	const entries: LadderEntry[] = [];
 
 	for (const clan of clans.values()) {
-<<<<<<< HEAD
 		const clanBeefs = eligibleBeefs.filter((b) => b.challengerClanId === clan.id || b.challengedClanId === clan.id);
 		const clanArenas = eligibleArenas.filter((m) => m.teamA.clanId === clan.id || m.teamB.clanId === clan.id);
 		if (clanBeefs.length + clanArenas.length === 0) continue;
-=======
-<<<<<<< HEAD
-		const clanBeefs = eligibleBeefs.filter((b) => b.challengerClanId === clan.id || b.challengedClanId === clan.id);
-		const clanArenas = eligibleArenas.filter((m) => m.teamA.clanId === clan.id || m.teamB.clanId === clan.id);
-		if (clanBeefs.length + clanArenas.length === 0) continue;
-=======
-		const clanBeefs = eligibleAll.filter(b => b.challengerClanId === clan.id || b.challengedClanId === clan.id);
-		if (clanBeefs.length === 0) continue;
->>>>>>> fda08aa2bb71e02a1c0284073d549e1312947da3
->>>>>>> 393556e65ae20a7804eb4ab3df59bee6f1b2e3bd
 
 		let wins = 0;
 		let losses = 0;
 		let lastMatchAt: number | null = null;
 
-<<<<<<< HEAD
 		const sortedBeefs = [...clanBeefs].sort((a, b) => b.updatedAt - a.updatedAt);
 		for (const beef of sortedBeefs) {
-=======
-<<<<<<< HEAD
-		const sortedBeefs = [...clanBeefs].sort((a, b) => b.updatedAt - a.updatedAt);
-		for (const beef of sortedBeefs) {
-=======
-		const sorted = [...clanBeefs].sort((a, b) => b.updatedAt - a.updatedAt);
-		for (const beef of sorted) {
->>>>>>> fda08aa2bb71e02a1c0284073d549e1312947da3
->>>>>>> 393556e65ae20a7804eb4ab3df59bee6f1b2e3bd
 			if (beef.winnerId === clan.id) wins++;
 			else losses++;
 			if (!lastMatchAt) lastMatchAt = beef.updatedAt;
 		}
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 393556e65ae20a7804eb4ab3df59bee6f1b2e3bd
 		const sortedArenas = [...clanArenas].sort((a, b) => b.updatedAt - a.updatedAt);
 		for (const m of sortedArenas) {
 			const winnerClanId = m.winnerSide === 'A' ? m.teamA.clanId : m.winnerSide === 'B' ? m.teamB.clanId : null;
@@ -1628,13 +1527,8 @@ function getClanXpLadderForFormats(formats: BeefMatch['format'][]): LadderEntry[
 			if (!lastMatchAt || m.updatedAt > lastMatchAt) lastMatchAt = m.updatedAt;
 		}
 
-<<<<<<< HEAD
-=======
-=======
->>>>>>> fda08aa2bb71e02a1c0284073d549e1312947da3
->>>>>>> 393556e65ae20a7804eb4ab3df59bee6f1b2e3bd
 		const matchesPlayed = wins + losses;
-		const xp = (matchesPlayed * 100) + (wins * 50);
+		const xp = matchesPlayed * 100 + wins * 50;
 
 		entries.push({
 			rank: 0,
@@ -1655,10 +1549,11 @@ function getClanXpLadderForFormats(formats: BeefMatch['format'][]): LadderEntry[
 		if (bt !== at) return bt - at;
 		return b.wins - a.wins;
 	});
-	entries.forEach((entry, i) => entry.rank = i + 1);
+	entries.forEach((entry, i) => (entry.rank = i + 1));
 
 	return entries;
 }
+
 
 export function getLadderForTab(tab: LadderTab): LadderEntry[] {
 	// Note: PLAYER-scoped ladders (Singles/Doubles/Team) will be powered by player/team match data.
