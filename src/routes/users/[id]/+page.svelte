@@ -263,7 +263,7 @@
 			</section>
 
 			<div class="footer-actions">
-				<button class="btn ghost" on:click={() => goto(-1)}>← Back</button>
+				<button class="btn ghost" on:click={() => history.back()}>← Back</button>
 				<a class="btn" href="/clans">Clans</a>
 			</div>
 		</div>

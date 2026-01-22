@@ -145,22 +145,22 @@
 		}
 	}
 
-	async function complete(id: string, winnerSide: ArenaSideKey) {
+	async function reportResult(id: string, winnerSide: ArenaSideKey) {
 		const userId = myUserId();
 		if (!userId) return;
 		error = null;
-		actionBusy = `complete:${id}:${winnerSide}`;
+		actionBusy = `report:${id}:${winnerSide}`;
 		try {
-			const res = await fetch(`/api/matches/${id}/complete`, {
+			const res = await fetch(`/api/matches/${id}/report`, {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify({ userId, winnerSide })
 			});
 			const data = await res.json();
-			if (!res.ok) throw new Error(data?.error ?? 'Failed to complete');
+			if (!res.ok) throw new Error(data?.error ?? 'Failed to report result');
 			await load();
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to complete';
+			error = e instanceof Error ? e.message : 'Failed to report result';
 		} finally {
 			actionBusy = null;
 		}
@@ -180,7 +180,7 @@
 
 	const openBoard = () => matches.filter((x) => {
 		const s = x.match.status;
-		return s === 'OPEN' || s === 'LIVE' || s === 'COMPLETED' || s === 'DECLINED';
+		return s === 'OPEN' || s === 'LIVE' || s === 'DISPUTED' || s === 'COMPLETED' || s === 'DECLINED';
 	});
 
 	function sideLabel(side: ArenaSideKey) {
@@ -238,12 +238,29 @@
 		return !!cid && m.challengedClanId === cid;
 	}
 
-	function canComplete(x: ArenaMatchView): boolean {
+	function canReport(x: ArenaMatchView): boolean {
 		const uid = myUserId();
 		if (!uid) return false;
 		const m = x.match;
 		if (m.status === 'COMPLETED') return false;
-		return (m.status === 'LIVE' || m.status === 'OPEN') && m.createdBy === uid;
+		if (!(m.status === 'LIVE' || m.status === 'DISPUTED')) return false;
+		return inRoster(x) !== null;
+	}
+
+	function reportLabel(side: ArenaSideKey | null) {
+		return side ? sideLabel(side) : 'No report yet';
+	}
+
+	function myReport(x: ArenaMatchView): ArenaSideKey | null {
+		const t = inRoster(x);
+		if (!t) return null;
+		return t === 'A' ? x.match.reportA : x.match.reportB;
+	}
+
+	function otherReport(x: ArenaMatchView): ArenaSideKey | null {
+		const t = inRoster(x);
+		if (!t) return null;
+		return t === 'A' ? x.match.reportB : x.match.reportA;
 	}
 
 	function teamTitle(x: ArenaMatchView, side: ArenaSideKey) {
@@ -262,6 +279,7 @@
 			case 'PENDING': return 'Pending';
 			case 'OPEN': return 'Open';
 			case 'LIVE': return 'Live';
+			case 'DISPUTED': return 'Disputed';
 			case 'COMPLETED': return 'Completed';
 			case 'DECLINED': return 'Declined';
 			default: return s;
@@ -436,6 +454,39 @@
 								</div>
 							{/if}
 
+							{#if x.match.status === 'LIVE' || x.match.status === 'DISPUTED' || x.match.status === 'COMPLETED'}
+								<div class="report-panel">
+									<div class="report-row"><span class="muted">Team A reported:</span> {reportLabel(x.match.reportA)}</div>
+									<div class="report-row"><span class="muted">Team B reported:</span> {reportLabel(x.match.reportB)}</div>
+									{#if x.match.status === 'DISPUTED'}
+										<div class="banner warn">Dispute: {x.match.disputeReason ?? 'Conflicting reports'}</div>
+									{/if}
+									{#if canReport(x)}
+										<div class="report-actions">
+											<button
+												class="btn {myReport(x) === 'A' ? 'active' : ''}"
+												on:click={() => reportResult(x.match.id, 'A')}
+												disabled={actionBusy === `report:${x.match.id}:A`}
+											>
+												Report Team A Win
+											</button>
+											<button
+												class="btn secondary {myReport(x) === 'B' ? 'active' : ''}"
+												on:click={() => reportResult(x.match.id, 'B')}
+												disabled={actionBusy === `report:${x.match.id}:B`}
+											>
+												Report Team B Win
+											</button>
+										</div>
+										<div class="hint">Your team can update its report until both sides agree.</div>
+									{:else}
+										{#if x.match.status === 'LIVE' || x.match.status === 'DISPUTED'}
+											<div class="hint">Only match participants can report a result.</div>
+										{/if}
+									{/if}
+								</div>
+							{/if}
+
 							<div class="actions">
 								{#if canRespond(x)}
 									<button class="btn" on:click={() => respond(x.match.id, 'ACCEPT')}>Accept</button>
@@ -456,23 +507,6 @@
 										Join Team B
 									</button>
 
-									{#if canComplete(x)}
-										<div class="divider"></div>
-										<button
-											class="btn"
-											on:click={() => complete(x.match.id, 'A')}
-											disabled={actionBusy?.startsWith('complete:')}
-										>
-											Mark Team A Win
-										</button>
-										<button
-											class="btn secondary"
-											on:click={() => complete(x.match.id, 'B')}
-											disabled={actionBusy?.startsWith('complete:')}
-										>
-											Mark Team B Win
-										</button>
-									{/if}
 								{/if}
 							</div>
 						</div>
@@ -573,6 +607,12 @@
 		color: rgba(255, 255, 255, 0.92);
 	}
 
+	.banner.warn {
+		border-color: rgba(255, 204, 80, 0.35);
+		background: rgba(255, 204, 80, 0.12);
+		color: rgba(255, 255, 255, 0.92);
+	}
+
 	.stack {
 		display: flex;
 		flex-direction: column;
@@ -644,6 +684,35 @@
 		margin-top: 10px;
 		color: rgba(255, 255, 255, 0.9);
 		font-weight: 600;
+	}
+
+	.report-panel {
+		margin-top: 12px;
+		padding: 12px;
+		border-radius: 12px;
+		border: 1px solid rgba(255, 255, 255, 0.12);
+		background: rgba(0, 0, 0, 0.25);
+	}
+
+	.report-row {
+		display: flex;
+		gap: 8px;
+		align-items: center;
+		font-size: 12px;
+		color: rgba(255, 255, 255, 0.85);
+		margin-bottom: 6px;
+	}
+
+	.report-actions {
+		margin-top: 10px;
+		display: flex;
+		gap: 10px;
+		flex-wrap: wrap;
+	}
+
+	:global(.btn.active) {
+		outline: 2px solid rgba(255, 255, 255, 0.25);
+		outline-offset: 2px;
 	}
 
 	.divider {

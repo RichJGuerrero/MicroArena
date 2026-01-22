@@ -3,7 +3,7 @@
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { getIntegrityLevel } from '$lib/types';
-	import type { LadderEntry } from '$lib/types';
+	import type { LadderEntry, PlayerLadderEntry } from '$lib/types';
 
 	type TabKey = 'singles' | 'doubles' | 'team' | 'clans';
 
@@ -15,10 +15,16 @@
 	];
 
 	let activeTab: TabKey = 'clans';
-	let ladder: LadderEntry[] = [];
+	let mode: 'CLAN' | 'PLAYER' = 'CLAN';
+	let clanLadder: LadderEntry[] = [];
+	let playerLadder: PlayerLadderEntry[] = [];
 	let loading = true;
 
-	$: totalXp = ladder.reduce((sum, e) => sum + (e.xp ?? 0), 0);
+	$: totalXp = mode === 'CLAN'
+		? clanLadder.reduce((sum, e) => sum + (e.xp ?? 0), 0)
+		: playerLadder.reduce((sum, e) => sum + (e.xp ?? 0), 0);
+
+	$: entryCount = mode === 'CLAN' ? clanLadder.length : playerLadder.length;
 
 	function formatLastMatch(ts: number | null): string {
 		if (!ts) return '—';
@@ -61,12 +67,15 @@
 
 	async function load(tab: TabKey) {
 		loading = true;
-		ladder = [];
+		clanLadder = [];
+		playerLadder = [];
 		try {
 			const res = await fetch(`/api/ladder?tab=${tab}`);
 			if (res.ok) {
 				const data = await res.json();
-				ladder = data.ladder ?? [];
+				mode = (data.mode ?? 'CLAN') as 'CLAN' | 'PLAYER';
+				if (mode === 'CLAN') clanLadder = (data.ladder ?? []) as LadderEntry[];
+				else playerLadder = (data.ladder ?? []) as PlayerLadderEntry[];
 			}
 		} catch (e) {
 			console.error(e);
@@ -119,7 +128,7 @@
 			<span class="stat-label">Season</span>
 		</div>
 		<div class="season-stat">
-			<span class="stat-value">{ladder.length}</span>
+			<span class="stat-value">{entryCount}</span>
 			<span class="stat-label">Entries</span>
 		</div>
 		<div class="season-stat">
@@ -145,7 +154,7 @@
 
 	{#if loading}
 		<div class="loading"><div class="spinner"></div></div>
-	{:else if ladder.length === 0}
+	{:else if entryCount === 0}
 		{@const msg = emptyMessage(activeTab)}
 		<div class="empty-state card">
 			<h3>{msg.title}</h3>
@@ -160,7 +169,12 @@
 				<thead>
 					<tr>
 						<th>Rank</th>
-						<th>Team</th>
+						{#if mode === 'CLAN'}
+							<th>Clan</th>
+						{:else}
+							<th>Player</th>
+							<th>Clan</th>
+						{/if}
 						<th>XP</th>
 						<th>Matches</th>
 						<th>Record</th>
@@ -169,35 +183,71 @@
 					</tr>
 				</thead>
 				<tbody>
-					{#each ladder as entry}
-						<tr>
-							<td class="rank-cell">
-								<span class="rank" class:top3={entry.rank <= 3}>
-									{#if entry.rank === 1}👑
-									{:else if entry.rank === 2}🥈
-									{:else if entry.rank === 3}🥉
-									{:else}{entry.rank}{/if}
-								</span>
-							</td>
-							<td>
-								<a href="/clans/{entry.clan.tag}" class="team-link">
-									<span class="clan-tag">{entry.clan.tag}</span>
-									<span class="clan-name">{entry.clan.name}</span>
-								</a>
-							</td>
-							<td class="xp-cell"><span class="xp">{entry.xp}</span></td>
-							<td class="matches-cell"><span class="matches">{entry.matchesPlayed}</span></td>
-							<td class="record-cell">
-								<span class="wins">{entry.wins}W</span>
-								<span class="separator">-</span>
-								<span class="losses">{entry.losses}L</span>
-							</td>
-							<td class="lastmatch-cell"><span class="lastmatch">{formatLastMatch(entry.lastMatchAt)}</span></td>
-							<td>
-								<span class="integrity-badge {getIntegrityLevel(entry.clan.integrity)}">{entry.clan.integrity}</span>
-							</td>
-						</tr>
-					{/each}
+					{#if mode === 'CLAN'}
+						{#each clanLadder as entry}
+							<tr>
+								<td class="rank-cell">
+									<span class="rank" class:top3={entry.rank <= 3}>
+										{#if entry.rank === 1}👑
+										{:else if entry.rank === 2}🥈
+										{:else if entry.rank === 3}🥉
+										{:else}{entry.rank}{/if}
+									</span>
+								</td>
+								<td>
+									<a href="/clans/{entry.clan.tag}" class="team-link">
+										<span class="clan-tag">{entry.clan.tag}</span>
+										<span class="clan-name">{entry.clan.name}</span>
+									</a>
+								</td>
+								<td class="xp-cell"><span class="xp">{entry.xp}</span></td>
+								<td class="matches-cell"><span class="matches">{entry.matchesPlayed}</span></td>
+								<td class="record-cell">
+									<span class="wins">{entry.wins}W</span>
+									<span class="separator">-</span>
+									<span class="losses">{entry.losses}L</span>
+								</td>
+								<td class="lastmatch-cell"><span class="lastmatch">{formatLastMatch(entry.lastMatchAt)}</span></td>
+								<td>
+									<span class="integrity-badge {getIntegrityLevel(entry.clan.integrity)}">{entry.clan.integrity}</span>
+								</td>
+							</tr>
+						{/each}
+					{:else}
+						{#each playerLadder as entry}
+							<tr>
+								<td class="rank-cell">
+									<span class="rank" class:top3={entry.rank <= 3}>
+										{#if entry.rank === 1}👑
+										{:else if entry.rank === 2}🥈
+										{:else if entry.rank === 3}🥉
+										{:else}{entry.rank}{/if}
+									</span>
+								</td>
+								<td>
+									<a class="player-link" href="/users/{entry.user.id}">{entry.user.username}</a>
+								</td>
+								<td>
+									{#if entry.user.clanId}
+										<span class="text-muted">In a clan</span>
+									{:else}
+										<span class="text-muted">—</span>
+									{/if}
+								</td>
+								<td class="xp-cell"><span class="xp">{entry.xp}</span></td>
+								<td class="matches-cell"><span class="matches">{entry.matchesPlayed}</span></td>
+								<td class="record-cell">
+									<span class="wins">{entry.wins}W</span>
+									<span class="separator">-</span>
+									<span class="losses">{entry.losses}L</span>
+								</td>
+								<td class="lastmatch-cell"><span class="lastmatch">{formatLastMatch(entry.lastMatchAt)}</span></td>
+								<td>
+									<span class="integrity-badge {getIntegrityLevel(entry.user.integrity)}">{entry.user.integrity}</span>
+								</td>
+							</tr>
+						{/each}
+					{/if}
 				</tbody>
 			</table>
 		</div>
@@ -273,6 +323,8 @@
 	.team-link { display: flex; align-items: center; gap: var(--space-sm); }
 	.team-link:hover .clan-name { color: var(--text-primary); }
 	.clan-name { color: var(--text-secondary); transition: color 0.2s; }
+	.player-link { color: rgba(255, 255, 255, 0.92); font-weight: 700; }
+	.player-link:hover { color: var(--accent); }
 
 	.xp-cell, .matches-cell, .record-cell, .lastmatch-cell { text-align: center; }
 	.xp, .matches, .lastmatch { font-family: var(--font-mono); font-weight: 700; }

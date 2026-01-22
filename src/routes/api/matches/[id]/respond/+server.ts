@@ -1,14 +1,5 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-<<<<<<< HEAD
-import { respondToArenaChallenge } from '$lib/server/store';
-
-export const POST: RequestHandler = async ({ params, request }) => {
-	try {
-		const body = await request.json();
-		const userId = String(body.userId ?? '').trim();
-		const action = String(body.action ?? '').toUpperCase();
-=======
 import { respondToArenaChallenge, getArenaMatchViews } from '$lib/server/store';
 
 // ============================================
@@ -25,21 +16,15 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		const userId = String(body.userId ?? '').trim();
 		const action = String(body.action ?? '').trim().toUpperCase();
 		const accept = action === 'ACCEPT';
->>>>>>> 393556e65ae20a7804eb4ab3df59bee6f1b2e3bd
 
 		if (!userId) return json({ error: 'userId is required' }, { status: 400 });
 		if (action !== 'ACCEPT' && action !== 'DECLINE') {
 			return json({ error: 'action must be ACCEPT or DECLINE' }, { status: 400 });
 		}
 
-<<<<<<< HEAD
-		const match = respondToArenaChallenge(params.id, userId, action === 'ACCEPT');
-		return json({ match });
-=======
 		respondToArenaChallenge(id, userId, accept);
 		const view = getArenaMatchViews().find((x) => x.match.id === id) ?? null;
 		return json({ match: view?.match ?? null, view });
->>>>>>> 393556e65ae20a7804eb4ab3df59bee6f1b2e3bd
 	} catch (err) {
 		const message = err instanceof Error ? err.message : 'Failed to respond to challenge';
 		return json({ error: message }, { status: 400 });
