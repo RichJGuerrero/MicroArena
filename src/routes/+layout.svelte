@@ -73,6 +73,7 @@
 					<a href="/matches" class:active={isActive('/matches', $page.url.pathname)}>Matches</a>
 					<a href="/ladder" class:active={isActive('/ladder', $page.url.pathname)}>Ladder</a>
 					<a href="/integrity" class:active={isActive('/integrity', $page.url.pathname)}>Integrity</a>
+					<a href="/refs" class:active={isActive('/refs', $page.url.pathname)}>Refs</a>
 				</div>
 				
 				<div class="nav-user">
@@ -120,6 +121,7 @@
 						<a href="/clans">Clans</a>
 						<a href="/inbox">Inbox</a>
 						<a href="/integrity">Integrity</a>
+						<a href="/refs">Refs &amp; Disputes</a>
 					</div>
 				</div>
 			</div>

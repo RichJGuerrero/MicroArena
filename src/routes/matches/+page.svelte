@@ -502,6 +502,25 @@
 								</div>
 							</div>
 
+							
+
+							{#if x.match.status === 'READY'}
+								<div class="banner info flow-callout">
+									Ready‑Up required: both teams must ready up before the timer expires.
+									<a href="/refs#ready">Learn more</a>
+								</div>
+							{:else if x.match.status === 'LIVE'}
+								<div class="hint flow-callout">
+									Result reporting: each team reports who won. Matching reports complete the match. Conflicts create a dispute.
+									<a href="/refs#reporting">Details</a>
+								</div>
+							{:else if x.match.status === 'DISPUTED'}
+								<div class="banner warn flow-callout">
+									Dispute flow: update your report to match the other side (if you mis‑clicked), or wait for a ref decision.
+									<a href="/refs#disputes">How disputes work</a>
+								</div>
+							{/if}
+
 							{#if x.match.resolutionNote}
 								<div class="banner warn">{x.match.resolutionNote}</div>
 							{/if}
@@ -531,6 +550,7 @@
 									{#if x.match.status === 'DISPUTED'}
 										<div class="banner warn">Dispute: {x.match.disputeReason ?? 'Conflicting reports'}</div>
 									{/if}
+									<div class="hint flow-hint">How it works: both teams report a winner. If reports match, the match completes. If not, it becomes DISPUTED until resolved. <a href="/refs#reporting">Learn more about reporting</a></div>
 									{#if canReport(x)}
 										<div class="report-actions">
 											<button
@@ -697,7 +717,12 @@
 		color: rgba(255, 255, 255, 0.6);
 		font-size: 12px;
 		line-height: 1.3;
-	}
+	
+
+	.hint a { color: rgba(255,255,255,0.85); text-decoration: underline; }
+	.banner a { color: rgba(255,255,255,0.9); text-decoration: underline; }
+	.banner a:hover, .hint a:hover { opacity: 0.9; }
+}
 
 	.wide {
 		grid-column: span 2;
@@ -730,6 +755,12 @@
 		color: rgba(255, 255, 255, 0.92);
 	}
 
+
+	.banner.info {
+		border-color: rgba(80, 160, 255, 0.35);
+		background: rgba(80, 160, 255, 0.12);
+		color: rgba(255, 255, 255, 0.92);
+	}
 	.stack {
 		display: flex;
 		flex-direction: column;
