@@ -58,23 +58,15 @@
 body {
 	font-family: var(--font-sans);
 	/*
-		Global “Arena Glow” background
-		- Keeps the Giants black base
-		- Adds subtle orange atmosphere (no grid)
-		- Home page still has its own hero glow on top
+		Base background color. The premium site-wide gradient is rendered in src/routes/+layout.svelte
+		so it stays consistent behind all pages and the watermark.
 	*/
 	background-color: var(--bg-primary);
-	background-image:
-		radial-gradient(ellipse at 30% 10%, rgba(253, 90, 30, 0.10) 0%, transparent 55%),
-		radial-gradient(ellipse at 80% 85%, rgba(253, 90, 30, 0.06) 0%, transparent 60%),
-		radial-gradient(ellipse at 50% 120%, rgba(255, 255, 255, 0.03) 0%, transparent 55%);
-	background-attachment: fixed;
-	background-repeat: no-repeat, no-repeat, no-repeat;
-	background-size: auto, auto, auto;
 	color: var(--text-primary);
 	line-height: 1.6;
 	min-height: 100vh;
 }
+
 
 a { color: inherit; text-decoration: none; }
 a:hover { color: var(--accent-hover); }

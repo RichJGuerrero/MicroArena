@@ -121,16 +121,15 @@ function loadFromDisk() {
 	}
 
 	// Integrity
-	// Integrity
-integrityEvents.clear();
-for (const ev of readJson(FILES.integrityEvents, [] as any[])) {
-  // Ensure we always have an id
-  const id = (ev && typeof ev === 'object' && 'id' in ev) ? (ev as any).id : undefined;
-  if (typeof id === 'string' && id.length > 0) {
-    integrityEvents.set(id, ev as any);
-  }
-}
-
+	integrityEvents.clear();
+	{
+		const raw = readJson(FILES.integrityEvents, [] as any);
+		// Back-compat: older broken saves may have written a Map as `{}`.
+		const list: any[] = Array.isArray(raw) ? raw : Object.values(raw ?? {});
+		for (const ev of list) {
+			const e = ev as any;
+			if (e?.id) integrityEvents.set(e.id, e);
+		}
 	}
 
 	// Beef matches
@@ -163,7 +162,23 @@ for (const ev of readJson(FILES.integrityEvents, [] as any[])) {
 
 	// Arena matches
 	arenaMatches.clear();
-	for (const m of readJson(FILES.arenaMatches, [] as any[])) {
+	for (const raw of readJson(FILES.arenaMatches, [] as any[])) {
+		const m = raw as any;
+		// Backward-compatible defaults (older saves may not include these fields)
+		if (m.readyDeadlineAt === undefined) m.readyDeadlineAt = null;
+		if (m.readyAAt === undefined) m.readyAAt = null;
+		if (m.readyBAt === undefined) m.readyBAt = null;
+		if (m.readyABy === undefined) m.readyABy = null;
+		if (m.readyBBy === undefined) m.readyBBy = null;
+		if (m.reportA === undefined) m.reportA = null;
+		if (m.reportB === undefined) m.reportB = null;
+		if (m.reportABy === undefined) m.reportABy = null;
+		if (m.reportBBy === undefined) m.reportBBy = null;
+		if (m.reportAAt === undefined) m.reportAAt = null;
+		if (m.reportBAt === undefined) m.reportBAt = null;
+		if (m.disputedAt === undefined) m.disputedAt = null;
+		if (m.disputeReason === undefined) m.disputeReason = null;
+		if (m.resolutionNote === undefined) m.resolutionNote = null;
 		arenaMatches.set(m.id, m as any);
 	}
 
@@ -172,7 +187,7 @@ for (const ev of readJson(FILES.integrityEvents, [] as any[])) {
 	for (const inv of readJson(FILES.clanInvites, [] as any[])) {
 		clanInvites.set(inv.id, inv as any);
 	}
-
+}
 
 function saveToDisk() {
 	writeJson(FILES.users, Array.from(users.values()));
@@ -181,7 +196,7 @@ function saveToDisk() {
 		FILES.clanMembers,
 		Object.fromEntries(Array.from(clanMembers.entries()).map(([clanId, members]) => [clanId, Array.from(members.values())]))
 	);
-	writeJson(FILES.integrityEvents, integrityEvents);
+	writeJson(FILES.integrityEvents, Array.from(integrityEvents.values()));
 	writeJson(FILES.beefMatches, Array.from(beefMatches.values()));
 	writeJson(FILES.tournaments, Array.from(tournaments.values()));
 	writeJson(
@@ -239,6 +254,122 @@ function toParticipants(ids: string[]): MatchParticipant[] {
 		.map((id) => users.get(id))
 		.filter((u): u is User => !!u)
 		.map((u) => ({ id: u.id, username: u.username }));
+}
+
+// ============================================
+// READY-UP (GB/CMG-style)
+// ============================================
+const READY_UP_GRACE_MS = 10 * 60 * 1000; // 10 minutes
+
+function isArenaRosterFull(m: ArenaMatch): boolean {
+	const size = getTeamSize(m.format);
+	const aFull = m.teamA.playerIds.length >= size;
+	const bFull = m.teamB.playerIds.length >= size;
+	if (!aFull || !bFull) return false;
+	if (m.scope === 'PLAYER') return true;
+	return Boolean(m.teamA.clanId && m.teamB.clanId);
+}
+
+function beginArenaReadyUp(m: ArenaMatch, now: number): void {
+	// Only transition into READY from OPEN/PENDING flows.
+	m.status = 'READY';
+	m.readyDeadlineAt = now + READY_UP_GRACE_MS;
+	m.readyAAt = null;
+	m.readyBAt = null;
+	m.readyABy = null;
+	m.readyBBy = null;
+	m.resolutionNote = null;
+}
+
+function sweepArenaReadyUps(now: number = Date.now()): boolean {
+	let changed = false;
+	for (const m of arenaMatches.values()) {
+		if (m.status !== 'READY') continue;
+
+		// Safety: if a READY match lacks a deadline (older save), start a new window.
+		if (!m.readyDeadlineAt) {
+			m.readyDeadlineAt = now + READY_UP_GRACE_MS;
+			m.updatedAt = now;
+			arenaMatches.set(m.id, m);
+			changed = true;
+			continue;
+		}
+
+		if (now < m.readyDeadlineAt) continue;
+
+		const aReady = Boolean(m.readyAAt);
+		const bReady = Boolean(m.readyBAt);
+
+		// If both are ready but the status never flipped (edge-case), promote to LIVE.
+		if (aReady && bReady) {
+			m.status = 'LIVE';
+			m.readyDeadlineAt = null;
+			m.resolutionNote = null;
+			m.updatedAt = now;
+			arenaMatches.set(m.id, m);
+			changed = true;
+			continue;
+		}
+
+		// Neither side readied: cancel.
+		if (!aReady && !bReady) {
+			m.status = 'CANCELLED';
+			m.completedAt = now;
+			m.updatedAt = now;
+			m.winnerSide = null;
+			m.resolutionNote = 'Auto-cancelled: neither side readied up before the deadline.';
+			// Light integrity penalty for everyone involved.
+			const allIds = Array.from(new Set([...m.teamA.playerIds, ...m.teamB.playerIds]));
+			for (const uid of allIds) {
+				try {
+					createIntegrityEvent({
+						type: 'NO_SHOW',
+						targetUserId: uid,
+						severity: 2,
+						description: `No ready-up: match ${m.id} auto-cancelled`,
+						matchId: m.id,
+						reportedBy: 'SYSTEM'
+					});
+				} catch {
+					// ignore
+				}
+			}
+			arenaMatches.set(m.id, m);
+			changed = true;
+			continue;
+		}
+
+		// One side readied, other didn't: auto-forfeit.
+		const winnerSide: ArenaSideKey = aReady ? 'A' : 'B';
+		const loserIds = winnerSide === 'A' ? m.teamB.playerIds : m.teamA.playerIds;
+
+		m.winnerSide = winnerSide;
+		m.status = 'COMPLETED';
+		m.completedAt = now;
+		m.updatedAt = now;
+		m.resolutionNote = `Auto-forfeit: Team ${winnerSide === 'A' ? 'B' : 'A'} did not ready up before the deadline.`;
+
+		for (const uid of loserIds) {
+			try {
+				createIntegrityEvent({
+					type: 'NO_SHOW',
+					targetUserId: uid,
+					severity: 3,
+					description: `No ready-up: forfeited match ${m.id}`,
+					matchId: m.id,
+					reportedBy: 'SYSTEM'
+				});
+			} catch {
+				// ignore
+			}
+		}
+
+		arenaMatches.set(m.id, m);
+		changed = true;
+	}
+
+	if (changed) touch();
+	return changed;
 }
 
 function arenaToMatch(arena: ArenaMatch): Match {
@@ -1048,6 +1179,11 @@ export function createArenaMatch(data: {
 		teamB: { clanId: null, playerIds: [] },
 		challengedUserId: null,
 		challengedClanId: null,
+		readyDeadlineAt: null,
+		readyAAt: null,
+		readyBAt: null,
+		readyABy: null,
+		readyBBy: null,
 		reportA: null,
 		reportB: null,
 		reportABy: null,
@@ -1056,6 +1192,7 @@ export function createArenaMatch(data: {
 		reportBAt: null,
 		disputedAt: null,
 		disputeReason: null,
+		resolutionNote: null,
 		winnerSide: null,
 		scoreA: null,
 		scoreB: null
@@ -1101,6 +1238,8 @@ export function getArenaMatch(id: string): ArenaMatch | null {
 }
 
 export function getAllArenaMatches(): ArenaMatch[] {
+	// Opportunistic timer sweep (no background jobs in V0).
+	sweepArenaReadyUps();
 	return Array.from(arenaMatches.values()).sort((a, b) => b.createdAt - a.createdAt);
 }
 
@@ -1164,12 +1303,12 @@ export function respondToArenaChallenge(id: string, responderId: string, accept:
 	}
 
 	// If both sides are already full, mark LIVE.
-	const size = getTeamSize(match.format);
-	if (match.teamA.playerIds.length >= size && match.teamB.playerIds.length >= size) {
-		match.status = 'LIVE';
+	const now = Date.now();
+	if (isArenaRosterFull(match)) {
+		beginArenaReadyUp(match, now);
 	}
 
-	match.updatedAt = Date.now();
+	match.updatedAt = now;
 	arenaMatches.set(id, match);
 	touch();
 	return match;
@@ -1223,14 +1362,108 @@ export function joinArenaMatch(id: string, userId: string, side: ArenaSideKey): 
 		}
 	}
 
-	// If both sides are full (and for CLAN, both clans are set), mark LIVE.
-	if (a.playerIds.length >= size && b.playerIds.length >= size) {
-		if (match.scope === 'PLAYER' || (a.clanId && b.clanId)) {
-			match.status = 'LIVE';
+	const now = Date.now();
+	// If both sides are full, begin ready-up instead of immediately going LIVE.
+	if (match.status === 'OPEN' && isArenaRosterFull(match)) {
+		beginArenaReadyUp(match, now);
+	}
+
+	match.updatedAt = now;
+	arenaMatches.set(id, match);
+	touch();
+	return match;
+}
+
+export function readyUpArenaMatch(id: string, userId: string): ArenaMatch {
+	const match = arenaMatches.get(id);
+	if (!match) throw new Error('Match not found');
+
+	// Run a quick sweep first in case the deadline has already passed.
+	sweepArenaReadyUps();
+	const m = arenaMatches.get(id);
+	if (!m) throw new Error('Match not found');
+	if (m.status !== 'READY') throw new Error('This match is not awaiting ready-up');
+
+	const isA = m.teamA.playerIds.includes(userId);
+	const isB = m.teamB.playerIds.includes(userId);
+	if (!isA && !isB) throw new Error('Only match participants can ready up');
+
+	const now = Date.now();
+	match.resolutionNote = null;
+	if (isA) {
+		if (!m.readyAAt) {
+			m.readyAAt = now;
+			m.readyABy = userId;
+		}
+	} else {
+		if (!m.readyBAt) {
+			m.readyBAt = now;
+			m.readyBBy = userId;
 		}
 	}
 
 	match.updatedAt = Date.now();
+	// If both sides are ready, promote to LIVE.
+	if (m.readyAAt && m.readyBAt) {
+		m.status = 'LIVE';
+		m.readyDeadlineAt = null;
+		m.resolutionNote = null;
+	}
+
+	m.updatedAt = now;
+	arenaMatches.set(id, m);
+	touch();
+	return m;
+}
+
+export function reportArenaMatchResult(id: string, reporterId: string, reportedWinnerSide: ArenaSideKey): ArenaMatch {
+	const match = arenaMatches.get(id);
+	if (!match) throw new Error('Match not found');
+	if (match.status === 'COMPLETED') return match;
+	if (match.status === 'CANCELLED' || match.status === 'DECLINED' || match.status === 'PENDING') {
+		throw new Error('This match cannot be reported in its current state');
+	}
+	if (!(match.status === 'LIVE' || match.status === 'DISPUTED')) {
+		throw new Error('Match results can only be reported once the match is LIVE');
+	}
+	if (reportedWinnerSide !== 'A' && reportedWinnerSide !== 'B') {
+		throw new Error('reportedWinnerSide must be A or B');
+	}
+
+	const isA = match.teamA.playerIds.includes(reporterId);
+	const isB = match.teamB.playerIds.includes(reporterId);
+	if (!isA && !isB) throw new Error('Only match participants can report results');
+
+	const now = Date.now();
+	if (isA) {
+		match.reportA = reportedWinnerSide;
+		match.reportABy = reporterId;
+		match.reportAAt = now;
+	} else {
+		match.reportB = reportedWinnerSide;
+		match.reportBBy = reporterId;
+		match.reportBAt = now;
+	}
+
+	// Resolve if both sides have reported.
+	const a = match.reportA ?? null;
+	const b = match.reportB ?? null;
+	if (a && b) {
+		if (a === b) {
+			match.winnerSide = a;
+			match.status = 'COMPLETED';
+			match.completedAt = now;
+			match.disputedAt = null;
+			match.disputeReason = null;
+		} else {
+			match.winnerSide = null;
+			match.status = 'DISPUTED';
+			match.disputedAt = now;
+			match.disputeReason = `Conflicting reports (A→${a}, B→${b})`;
+		}
+	}
+
+	match.updatedAt = now;
 	arenaMatches.set(id, match);
 	touch();
 	return match;
@@ -1240,7 +1473,7 @@ export function completeArenaMatch(id: string, winnerSide: ArenaSideKey, scoreA?
 	const match = arenaMatches.get(id);
 	if (!match) throw new Error('Match not found');
 	if (match.status === 'COMPLETED') return match;
-	if (!(match.status === 'LIVE' || match.status === 'OPEN')) {
+	if (!(match.status === 'LIVE' || match.status === 'OPEN' || match.status === 'READY')) {
 		throw new Error('Match cannot be completed in its current state');
 	}
 
@@ -1251,6 +1484,8 @@ export function completeArenaMatch(id: string, winnerSide: ArenaSideKey, scoreA?
 	match.status = 'COMPLETED';
 	match.completedAt = now;
 	match.updatedAt = now;
+	match.readyDeadlineAt = null;
+	match.resolutionNote = null;
 	// Stamp reports for UI consistency (creator/admin override).
 	match.reportA = winnerSide;
 	match.reportB = winnerSide;

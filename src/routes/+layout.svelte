@@ -55,6 +55,8 @@
 </script>
 
 <div class="app">
+	<!-- Site-wide premium gradient background (root layout). -->
+	<div class="site-gradient" aria-hidden="true"></div>
 	<!-- Subtle site-wide watermark (official MicroArena logo). Kept behind all content. -->
 	<div class="site-watermark" aria-hidden="true"></div>
 	<header class="nav-header">
@@ -129,6 +131,19 @@
 </div>
 
 <style>
+	.site-gradient {
+		position: fixed;
+		inset: 0;
+		pointer-events: none;
+		z-index: 0;
+		background:
+			radial-gradient(ellipse at 25% 10%, rgba(253, 90, 30, 0.16) 0%, transparent 55%),
+			radial-gradient(ellipse at 78% 85%, rgba(253, 90, 30, 0.10) 0%, transparent 60%),
+			radial-gradient(ellipse at 50% 120%, rgba(255, 255, 255, 0.05) 0%, transparent 55%),
+			linear-gradient(180deg, rgba(5,5,5,1) 0%, rgba(10,10,12,1) 55%, rgba(5,5,5,1) 100%);
+		background-attachment: fixed;
+	}
+
 	.app {
 		display: flex;
 		flex-direction: column;
@@ -136,11 +151,19 @@
 		position: relative;
 	}
 
+	/* Keep foreground content above the fixed background layers */
+	.nav-header,
+	.main,
+	.footer {
+		position: relative;
+		z-index: 2;
+	}
+
 	.site-watermark {
 		position: fixed;
 		inset: 0;
 		pointer-events: none;
-		z-index: 0;
+		z-index: 1;
 		background-image: url('/MicroArena Logo.png');
 		background-repeat: no-repeat;
 		background-position: center 120px;
@@ -150,7 +173,7 @@
 	}
 	
 	.nav-header {
-		background: var(--bg-secondary);
+		background: rgba(15, 15, 15, 0.78);
 		border-bottom: 1px solid var(--border);
 		padding: var(--space-md) 0;
 		position: sticky;
@@ -261,7 +284,7 @@
 	}
 	
 	.footer {
-		background: var(--bg-secondary);
+		background: rgba(15, 15, 15, 0.72);
 		border-top: 1px solid var(--border);
 		padding: var(--space-3xl) 0 var(--space-xl);
 		margin-top: var(--space-3xl);

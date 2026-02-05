@@ -283,7 +283,8 @@ export type ArenaMatchVisibility = 'OPEN' | 'DIRECT';
 export type ArenaMatchStatus =
 	| 'PENDING'   // awaiting accept/decline (DIRECT only)
 	| 'OPEN'      // joinable / filling rosters
-	| 'LIVE'      // rosters full / match in progress
+	| 'READY'     // rosters full / waiting for both sides to ready-up
+	| 'LIVE'      // ready-up complete / match in progress
 	| 'DISPUTED'  // conflicting result reports
 	| 'COMPLETED'
 	| 'DECLINED'
@@ -320,6 +321,19 @@ export interface ArenaMatch {
 	/** DIRECT challenges target either a user or a clan (depending on scope). */
 	challengedUserId: string | null;
 	challengedClanId: string | null;
+
+	// ============================================
+	// READY-UP (GB/CMG-style)
+	// - Once both rosters are full, the match enters READY.
+	// - Each side must "ready up" before the deadline.
+	// - If one side readies and the other does not, the non-ready side forfeits.
+	// - If neither side readies, the match is cancelled.
+	// ============================================
+	readyDeadlineAt: number | null;
+	readyAAt: number | null;
+	readyBAt: number | null;
+	readyABy: string | null;
+	readyBBy: string | null;
 	/** Team A's reported winner (A or B). */
 	reportA: ArenaSideKey | null;
 	/** Team B's reported winner (A or B). */
@@ -336,6 +350,8 @@ export interface ArenaMatch {
 	disputedAt: number | null;
 	/** If DISPUTED, a short reason string. */
 	disputeReason: string | null;
+	/** A short system note (e.g., auto-forfeit or auto-cancel). */
+	resolutionNote: string | null;
 	winnerSide: ArenaSideKey | null;
 	scoreA: number | null;
 	scoreB: number | null;

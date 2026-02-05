@@ -9,6 +9,7 @@
 	let loading = true;
 	let error: string | null = null;
 	let actionBusy: string | null = null;
+	let now = Date.now();
 
 	// Create form state
 	let visibility: Visibility = 'OPEN';
@@ -66,9 +67,13 @@
 		}
 	}
 
-	onMount(async () => {
+	onMount(() => {
 		enforceCanon();
-		await load();
+		load();
+		const t = setInterval(() => {
+			now = Date.now();
+		}, 1000);
+		return () => clearInterval(t);
 	});
 
 	$: enforceCanon();
@@ -180,7 +185,7 @@
 
 	const openBoard = () => matches.filter((x) => {
 		const s = x.match.status;
-		return s === 'OPEN' || s === 'LIVE' || s === 'DISPUTED' || s === 'COMPLETED' || s === 'DECLINED';
+		return s === 'OPEN' || s === 'READY' || s === 'LIVE' || s === 'DISPUTED' || s === 'COMPLETED' || s === 'DECLINED' || s === 'CANCELLED';
 	});
 
 	function sideLabel(side: ArenaSideKey) {
@@ -247,6 +252,53 @@
 		return inRoster(x) !== null;
 	}
 
+	function myReadySide(x: ArenaMatchView): ArenaSideKey | null {
+		return inRoster(x);
+	}
+
+	function isSideReady(x: ArenaMatchView, side: ArenaSideKey): boolean {
+		return side === 'A' ? !!x.match.readyAAt : !!x.match.readyBAt;
+	}
+
+	function canReadyUp(x: ArenaMatchView): boolean {
+		if (!myUserId()) return false;
+		if (x.match.status !== 'READY') return false;
+		const side = myReadySide(x);
+		if (!side) return false;
+		return !isSideReady(x, side);
+	}
+
+	function readyTimeLeftLabel(deadlineAt: number | null): string {
+		if (!deadlineAt) return '—';
+		const ms = deadlineAt - now;
+		if (ms <= 0) return 'Expired';
+		const total = Math.floor(ms / 1000);
+		const m = Math.floor(total / 60);
+		const s = (total % 60).toString().padStart(2, '0');
+		return `${m}:${s}`;
+	}
+
+	async function readyUp(matchId: string) {
+		const userId = myUserId();
+		if (!userId) return;
+		error = null;
+		actionBusy = `ready:${matchId}`;
+		try {
+			const res = await fetch(`/api/matches/${matchId}/ready`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ userId })
+			});
+			const data = await res.json();
+			if (!res.ok) throw new Error(data?.error ?? 'Failed to ready up');
+			await load();
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to ready up';
+		} finally {
+			actionBusy = null;
+		}
+	}
+
 	function reportLabel(side: ArenaSideKey | null) {
 		return side ? sideLabel(side) : 'No report yet';
 	}
@@ -278,10 +330,12 @@
 		switch (s) {
 			case 'PENDING': return 'Pending';
 			case 'OPEN': return 'Open';
+			case 'READY': return 'Ready Up';
 			case 'LIVE': return 'Live';
 			case 'DISPUTED': return 'Disputed';
 			case 'COMPLETED': return 'Completed';
 			case 'DECLINED': return 'Declined';
+			case 'CANCELLED': return 'Cancelled';
 			default: return s;
 		}
 	}
@@ -448,9 +502,58 @@
 								</div>
 							</div>
 
+							{#if x.match.resolutionNote}
+								<div class="banner warn">{x.match.resolutionNote}</div>
+							{/if}
+
+							{#if x.match.status === 'READY'}
+								<div class="ready-panel">
+									<div class="report-row"><span class="muted">Ready:</span> Team A {isSideReady(x,'A') ? '✓' : '…'} | Team B {isSideReady(x,'B') ? '✓' : '…'}</div>
+									<div class="report-row"><span class="muted">Time left:</span> {readyTimeLeftLabel(x.match.readyDeadlineAt)}</div>
+									<div class="hint">Both teams must ready up to unlock result reporting.</div>
+								</div>
+							{/if}
+
 							{#if x.match.status === 'COMPLETED'}
-								<div class="winner">
-									Winner: {x.match.winnerSide === 'A' ? 'Team A' : 'Team B'}
+								{#if x.match.winnerSide}
+									<div class="winner">
+										Winner: {x.match.winnerSide === 'A' ? 'Team A' : 'Team B'}
+									</div>
+								{:else}
+									<div class="winner">Winner: —</div>
+								{/if}
+							{/if}
+
+							{#if x.match.status === 'LIVE' || x.match.status === 'DISPUTED' || x.match.status === 'COMPLETED'}
+								<div class="report-panel">
+									<div class="report-row"><span class="muted">Team A reported:</span> {reportLabel(x.match.reportA)}</div>
+									<div class="report-row"><span class="muted">Team B reported:</span> {reportLabel(x.match.reportB)}</div>
+									{#if x.match.status === 'DISPUTED'}
+										<div class="banner warn">Dispute: {x.match.disputeReason ?? 'Conflicting reports'}</div>
+									{/if}
+									{#if canReport(x)}
+										<div class="report-actions">
+											<button
+												class="btn {myReport(x) === 'A' ? 'active' : ''}"
+												on:click={() => reportResult(x.match.id, 'A')}
+												disabled={actionBusy === `report:${x.match.id}:A`}
+											>
+												Report Team A Win
+											</button>
+											<button
+												class="btn secondary {myReport(x) === 'B' ? 'active' : ''}"
+												on:click={() => reportResult(x.match.id, 'B')}
+												disabled={actionBusy === `report:${x.match.id}:B`}
+											>
+												Report Team B Win
+											</button>
+										</div>
+										<div class="hint">Your team can update its report until both sides agree.</div>
+									{:else}
+										{#if x.match.status === 'LIVE' || x.match.status === 'DISPUTED'}
+											<div class="hint">Only match participants can report a result.</div>
+										{/if}
+									{/if}
 								</div>
 							{/if}
 
@@ -492,20 +595,34 @@
 									<button class="btn" on:click={() => respond(x.match.id, 'ACCEPT')}>Accept</button>
 									<button class="btn secondary" on:click={() => respond(x.match.id, 'DECLINE')}>Decline</button>
 								{:else}
-									<button
-										class="btn"
-										on:click={() => join(x.match.id, 'A')}
-										disabled={!canJoinSide(x, 'A') || actionBusy === `join:${x.match.id}:A`}
-									>
-										Join Team A
-									</button>
-									<button
-										class="btn secondary"
-										on:click={() => join(x.match.id, 'B')}
-										disabled={!canJoinSide(x, 'B') || actionBusy === `join:${x.match.id}:B`}
-									>
-										Join Team B
-									</button>
+									{#if x.match.status === 'READY'}
+										{#if myReadySide(x)}
+											<button
+												class="btn {canReadyUp(x) ? '' : 'active'}"
+												on:click={() => readyUp(x.match.id)}
+												disabled={!canReadyUp(x) || actionBusy === `ready:${x.match.id}`}
+											>
+												{canReadyUp(x) ? 'Ready Up' : 'Ready ✓'}
+											</button>
+										{:else}
+											<div class="hint">Rosters locked. Waiting for teams to ready up.</div>
+										{/if}
+									{:else}
+										<button
+											class="btn"
+											on:click={() => join(x.match.id, 'A')}
+											disabled={!canJoinSide(x, 'A') || actionBusy === `join:${x.match.id}:A`}
+										>
+											Join Team A
+										</button>
+										<button
+											class="btn secondary"
+											on:click={() => join(x.match.id, 'B')}
+											disabled={!canJoinSide(x, 'B') || actionBusy === `join:${x.match.id}:B`}
+										>
+											Join Team B
+										</button>
+									{/if}
 
 								{/if}
 							</div>
@@ -692,6 +809,14 @@
 		border-radius: 12px;
 		border: 1px solid rgba(255, 255, 255, 0.12);
 		background: rgba(0, 0, 0, 0.25);
+	}
+
+	.ready-panel {
+		margin-top: 12px;
+		padding: 12px;
+		border-radius: 12px;
+		border: 1px solid rgba(255, 255, 255, 0.12);
+		background: rgba(0, 0, 0, 0.18);
 	}
 
 	.report-row {
