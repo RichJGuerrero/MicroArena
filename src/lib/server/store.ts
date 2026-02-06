@@ -1558,6 +1558,21 @@ export function completeArenaMatch(id: string, winnerSide: ArenaSideKey, scoreA?
 	return match;
 }
 
+// Admin/ref override: resolve a match (especially DISPUTED) with an explicit outcome + optional note.
+export function adminResolveArenaMatch(id: string, data: {
+	winnerSide: ArenaSideKey;
+	scoreA?: number;
+	scoreB?: number;
+	resolutionNote?: string | null;
+}): ArenaMatch {
+	const resolved = completeArenaMatch(id, data.winnerSide, data.scoreA, data.scoreB);
+	resolved.resolutionNote = (data.resolutionNote ?? '').trim() || null;
+	resolved.updatedAt = Date.now();
+	arenaMatches.set(id, resolved);
+	touch();
+	return resolved;
+}
+
 // ============================================
 // MATCH HISTORY (Derived)
 // ============================================

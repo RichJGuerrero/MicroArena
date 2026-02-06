@@ -14,18 +14,52 @@
 		demoLogout
 	} from '$lib/auth';
 	import { getIntegrityLevel } from '$lib/types';
-	
-	onMount(async () => {
-		// Check if Auth0 is configured
-		const auth0Configured = import.meta.env.PUBLIC_AUTH0_DOMAIN && 
-			import.meta.env.PUBLIC_AUTH0_CLIENT_ID;
-		
-		if (auth0Configured) {
-			await initAuth();
-		} else {
-			// Demo mode
-			await restoreDemoSession();
+
+	let isAdmin = false;
+
+	async function refreshAdminFlag() {
+		if (!browser) return;
+		try {
+			const res = await fetch('/api/admin/me');
+			if (!res.ok) {
+				isAdmin = false;
+				return;
+			}
+			const data = await res.json();
+			isAdmin = Boolean(data?.isAdmin);
+		} catch {
+			isAdmin = false;
 		}
+	}
+	
+	onMount(() => {
+		let off: (() => void) | null = null;
+
+		(async () => {
+			// Check if Auth0 is configured
+			const auth0Configured = import.meta.env.PUBLIC_AUTH0_DOMAIN && 
+				import.meta.env.PUBLIC_AUTH0_CLIENT_ID;
+			
+			if (auth0Configured) {
+				await initAuth();
+			} else {
+				// Demo mode
+				await restoreDemoSession();
+			}
+
+			// Admin nav should only appear for signed-in admins (cookie-based).
+			await refreshAdminFlag();
+
+			if (browser) {
+				const handler = () => refreshAdminFlag();
+				window.addEventListener('microarena:admin-changed', handler);
+				off = () => window.removeEventListener('microarena:admin-changed', handler);
+			}
+		})();
+
+		return () => {
+			off?.();
+		};
 	});
 	
 	function handleLogout() {
@@ -73,7 +107,10 @@
 					<a href="/matches" class:active={isActive('/matches', $page.url.pathname)}>Matches</a>
 					<a href="/ladder" class:active={isActive('/ladder', $page.url.pathname)}>Ladder</a>
 					<a href="/integrity" class:active={isActive('/integrity', $page.url.pathname)}>Integrity</a>
-					<a href="/refs" class:active={isActive('/refs', $page.url.pathname)}>Refs</a>
+					{#if isAdmin && $isAuthenticated}
+						<a href="/refs" class:active={isActive('/refs', $page.url.pathname)}>Refs</a>
+						<a href="/admin" class:active={isActive('/admin', $page.url.pathname)}>Admin</a>
+					{/if}
 				</div>
 				
 				<div class="nav-user">
@@ -121,7 +158,10 @@
 						<a href="/clans">Clans</a>
 						<a href="/inbox">Inbox</a>
 						<a href="/integrity">Integrity</a>
-						<a href="/refs">Refs &amp; Disputes</a>
+						{#if isAdmin && $isAuthenticated}
+							<a href="/refs">Refs &amp; Disputes</a>
+							<a href="/admin">Admin Panel</a>
+						{/if}
 					</div>
 				</div>
 			</div>
