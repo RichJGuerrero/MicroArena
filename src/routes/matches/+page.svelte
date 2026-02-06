@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { currentUser, isAuthenticated } from '$lib/auth';
-	import type { ArenaMatchView, ArenaSideKey, BeefMatch, MatchQueue, MatchScope } from '$lib/types';
+	import type { ArenaEvidenceItem, ArenaMatchView, ArenaSideKey, BeefMatch, MatchQueue, MatchScope } from '$lib/types';
 
 	type Visibility = 'OPEN' | 'DIRECT';
 
@@ -10,6 +10,10 @@
 	let error: string | null = null;
 	let actionBusy: string | null = null;
 	let now = Date.now();
+
+	// Evidence form state (per match id)
+	let evidenceUrl: Record<string, string> = {};
+	let evidenceNote: Record<string, string> = {};
 
 	// Create form state
 	let visibility: Visibility = 'OPEN';
@@ -171,6 +175,56 @@
 		}
 	}
 
+	async function addEvidence(id: string) {
+		const userId = myUserId();
+		if (!userId) return;
+		const url = (evidenceUrl[id] ?? '').trim();
+		const note = (evidenceNote[id] ?? '').trim();
+		if (!url) {
+			error = 'Please paste a valid evidence URL (clip or screenshot link).';
+			return;
+		}
+		error = null;
+		actionBusy = `evidence:add:${id}`;
+		try {
+			const res = await fetch(`/api/matches/${id}/evidence`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ userId, url, note: note || null })
+			});
+			const data = await res.json();
+			if (!res.ok) throw new Error(data?.error ?? 'Failed to add evidence');
+			evidenceUrl[id] = '';
+			evidenceNote[id] = '';
+			await load();
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to add evidence';
+		} finally {
+			actionBusy = null;
+		}
+	}
+
+	async function removeEvidence(matchId: string, evidenceId: string) {
+		const userId = myUserId();
+		if (!userId) return;
+		error = null;
+		actionBusy = `evidence:remove:${matchId}:${evidenceId}`;
+		try {
+			const res = await fetch(`/api/matches/${matchId}/evidence`, {
+				method: 'DELETE',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ userId, evidenceId })
+			});
+			const data = await res.json();
+			if (!res.ok) throw new Error(data?.error ?? 'Failed to remove evidence');
+			await load();
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to remove evidence';
+		} finally {
+			actionBusy = null;
+		}
+	}
+
 	const incomingChallenges = () => {
 		const uid = myUserId();
 		const cid = myClanId();
@@ -313,6 +367,14 @@
 		const t = inRoster(x);
 		if (!t) return null;
 		return t === 'A' ? x.match.reportB : x.match.reportA;
+	}
+
+	function evidenceList(x: ArenaMatchView, side: ArenaSideKey): ArenaEvidenceItem[] {
+		const list = Array.isArray((x.match as any).evidence) ? ((x.match as any).evidence as ArenaEvidenceItem[]) : [];
+		return list
+			.filter((e) => e && e.side === side)
+			.slice()
+			.sort((a, b) => (b.addedAt ?? 0) - (a.addedAt ?? 0));
 	}
 
 	function teamTitle(x: ArenaMatchView, side: ArenaSideKey) {
@@ -574,39 +636,86 @@
 											<div class="hint">Only match participants can report a result.</div>
 										{/if}
 									{/if}
-								</div>
-							{/if}
 
-							{#if x.match.status === 'LIVE' || x.match.status === 'DISPUTED' || x.match.status === 'COMPLETED'}
-								<div class="report-panel">
-									<div class="report-row"><span class="muted">Team A reported:</span> {reportLabel(x.match.reportA)}</div>
-									<div class="report-row"><span class="muted">Team B reported:</span> {reportLabel(x.match.reportB)}</div>
-									{#if x.match.status === 'DISPUTED'}
-										<div class="banner warn">Dispute: {x.match.disputeReason ?? 'Conflicting reports'}</div>
-									{/if}
-									{#if canReport(x)}
-										<div class="report-actions">
-											<button
-												class="btn {myReport(x) === 'A' ? 'active' : ''}"
-												on:click={() => reportResult(x.match.id, 'A')}
-												disabled={actionBusy === `report:${x.match.id}:A`}
-											>
-												Report Team A Win
-											</button>
-											<button
-												class="btn secondary {myReport(x) === 'B' ? 'active' : ''}"
-												on:click={() => reportResult(x.match.id, 'B')}
-												disabled={actionBusy === `report:${x.match.id}:B`}
-											>
-												Report Team B Win
-											</button>
-										</div>
-										<div class="hint">Your team can update its report until both sides agree.</div>
-									{:else}
-										{#if x.match.status === 'LIVE' || x.match.status === 'DISPUTED'}
-											<div class="hint">Only match participants can report a result.</div>
+								<!-- Evidence (clips/screenshots) for dispute resolution -->
+								{#if x.match.status === 'DISPUTED' || x.match.status === 'LIVE'}
+									<div class="evidence">
+										<div class="evidence-title">Evidence</div>
+										{#if inRoster(x)}
+											<div class="evidence-form">
+												<input
+													class="input"
+													placeholder="Paste clip or screenshot URL (https://...)"
+													bind:value={evidenceUrl[x.match.id]}
+												/>
+												<input
+													class="input"
+													placeholder="Optional note (e.g., Round 3, 0:42)"
+													bind:value={evidenceNote[x.match.id]}
+												/>
+												<button
+													class="btn secondary"
+													on:click={() => addEvidence(x.match.id)}
+													disabled={actionBusy === `evidence:add:${x.match.id}`}
+												>
+													Add Evidence
+												</button>
+											</div>
+										{:else}
+											<div class="hint">Only match participants can submit evidence.</div>
 										{/if}
-									{/if}
+
+										<div class="evidence-grid">
+											<div class="evidence-col">
+												<div class="muted small">Team A</div>
+												{#if evidenceList(x, 'A').length === 0}
+													<div class="muted small">No evidence yet.</div>
+												{:else}
+													{#each evidenceList(x, 'A') as ev (ev.id)}
+														<div class="evidence-item">
+															<a class="evidence-link" href={ev.url} target="_blank" rel="noreferrer">{ev.url}</a>
+															{#if ev.note}
+																<div class="muted small">{ev.note}</div>
+															{/if}
+															{#if ev.addedBy === myUserId()}
+																<button
+																	class="btn ghost sm"
+																	on:click={() => removeEvidence(x.match.id, ev.id)}
+																	disabled={actionBusy === `evidence:remove:${x.match.id}:${ev.id}`}
+																>
+																	Remove
+																</button>
+															{/if}
+														</div>
+													{/each}
+												{/if}
+											</div>
+											<div class="evidence-col">
+												<div class="muted small">Team B</div>
+												{#if evidenceList(x, 'B').length === 0}
+													<div class="muted small">No evidence yet.</div>
+												{:else}
+													{#each evidenceList(x, 'B') as ev (ev.id)}
+														<div class="evidence-item">
+															<a class="evidence-link" href={ev.url} target="_blank" rel="noreferrer">{ev.url}</a>
+															{#if ev.note}
+																<div class="muted small">{ev.note}</div>
+															{/if}
+															{#if ev.addedBy === myUserId()}
+																<button
+																	class="btn ghost sm"
+																	on:click={() => removeEvidence(x.match.id, ev.id)}
+																	disabled={actionBusy === `evidence:remove:${x.match.id}:${ev.id}`}
+																>
+																	Remove
+																</button>
+															{/if}
+														</div>
+												{/each}
+											{/if}
+										</div>
+									</div>
+									<div class="hint">Tip: link a clip, a screenshot, or a timestamped VOD segment. Keep it clean and factual.</div>
 								</div>
 							{/if}
 
@@ -840,6 +949,66 @@
 		border-radius: 12px;
 		border: 1px solid rgba(255, 255, 255, 0.12);
 		background: rgba(0, 0, 0, 0.25);
+	}
+
+	.evidence {
+		margin-top: 12px;
+		padding-top: 12px;
+		border-top: 1px solid rgba(255, 255, 255, 0.10);
+	}
+
+	.evidence-title {
+		font-weight: 600;
+		color: rgba(255, 255, 255, 0.9);
+		margin-bottom: 8px;
+	}
+
+	.evidence-form {
+		display: grid;
+		grid-template-columns: 1fr 1fr auto;
+		gap: 10px;
+		align-items: center;
+		margin-bottom: 10px;
+	}
+
+	.evidence-grid {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 12px;
+	}
+
+	.evidence-col {
+		border: 1px solid rgba(255, 255, 255, 0.10);
+		border-radius: 12px;
+		padding: 10px;
+		background: rgba(0, 0, 0, 0.18);
+	}
+
+	.evidence-item {
+		margin-top: 10px;
+		padding-top: 10px;
+		border-top: 1px solid rgba(255, 255, 255, 0.10);
+	}
+
+	.evidence-link {
+		font-size: 12px;
+		color: rgba(255, 255, 255, 0.9);
+		word-break: break-all;
+	}
+
+	.small {
+		font-size: 12px;
+	}
+
+	:global(.btn.ghost) {
+		background: transparent;
+		border: 1px solid rgba(255, 255, 255, 0.12);
+		color: rgba(255, 255, 255, 0.85);
+	}
+	:global(.btn.sm) {
+		padding: 6px 10px;
+		font-size: 12px;
+		border-radius: 10px;
 	}
 
 	.ready-panel {

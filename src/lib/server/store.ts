@@ -165,6 +165,7 @@ function loadFromDisk() {
 	for (const raw of readJson(FILES.arenaMatches, [] as any[])) {
 		const m = raw as any;
 		// Backward-compatible defaults (older saves may not include these fields)
+		if (m.evidence === undefined) m.evidence = [];
 		if (m.readyDeadlineAt === undefined) m.readyDeadlineAt = null;
 		if (m.readyAAt === undefined) m.readyAAt = null;
 		if (m.readyBAt === undefined) m.readyBAt = null;
@@ -179,6 +180,7 @@ function loadFromDisk() {
 		if (m.disputedAt === undefined) m.disputedAt = null;
 		if (m.disputeReason === undefined) m.disputeReason = null;
 		if (m.resolutionNote === undefined) m.resolutionNote = null;
+		if (!Array.isArray(m.evidence)) m.evidence = [];
 		arenaMatches.set(m.id, m as any);
 	}
 
@@ -1193,6 +1195,7 @@ export function createArenaMatch(data: {
 		disputedAt: null,
 		disputeReason: null,
 		resolutionNote: null,
+		evidence: [],
 		winnerSide: null,
 		scoreA: null,
 		scoreB: null
@@ -1464,6 +1467,61 @@ export function reportArenaMatchResult(id: string, reporterId: string, reportedW
 	}
 
 	match.updatedAt = now;
+	arenaMatches.set(id, match);
+	touch();
+	return match;
+}
+
+// ============================================
+// EVIDENCE (Disputes)
+// ============================================
+export function addArenaMatchEvidence(id: string, userId: string, url: string, note?: string | null): ArenaMatch {
+	const match = arenaMatches.get(id);
+	if (!match) throw new Error('Match not found');
+	const u = (url ?? '').trim();
+	if (!u) throw new Error('url is required');
+	if (!(u.startsWith('http://') || u.startsWith('https://'))) throw new Error('url must start with http:// or https://');
+
+	const isA = match.teamA.playerIds.includes(userId);
+	const isB = match.teamB.playerIds.includes(userId);
+	if (!isA && !isB) throw new Error('Only match participants can add evidence');
+	const side: ArenaSideKey = isA ? 'A' : 'B';
+
+	if (!Array.isArray((match as any).evidence)) (match as any).evidence = [];
+	const evidence = (match as any).evidence as any[];
+	// Soft cap to prevent spam / runaway payloads.
+	if (evidence.length >= 40) throw new Error('Evidence limit reached for this match');
+
+	const now = Date.now();
+	evidence.push({
+		id: generateId(),
+		side,
+		url: u,
+		note: (note ?? '').trim() || null,
+		addedBy: userId,
+		addedAt: now
+	});
+
+	match.updatedAt = now;
+	arenaMatches.set(id, match);
+	touch();
+	return match;
+}
+
+export function removeArenaMatchEvidence(id: string, userId: string, evidenceId: string): ArenaMatch {
+	const match = arenaMatches.get(id);
+	if (!match) throw new Error('Match not found');
+	const eid = (evidenceId ?? '').trim();
+	if (!eid) throw new Error('evidenceId is required');
+	if (!Array.isArray((match as any).evidence)) (match as any).evidence = [];
+	const evidence = (match as any).evidence as any[];
+	const idx = evidence.findIndex((e) => e && e.id === eid);
+	if (idx < 0) throw new Error('Evidence item not found');
+	const item = evidence[idx] as any;
+	// V0: only the user who added the evidence can remove it.
+	if (item.addedBy !== userId) throw new Error('You can only remove evidence you added');
+	evidence.splice(idx, 1);
+	match.updatedAt = Date.now();
 	arenaMatches.set(id, match);
 	touch();
 	return match;

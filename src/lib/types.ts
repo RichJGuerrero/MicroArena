@@ -299,6 +299,15 @@ export interface ArenaMatchSide {
 	playerIds: string[];
 }
 
+export interface ArenaEvidenceItem {
+	id: string;
+	side: ArenaSideKey;
+	url: string;
+	note: string | null;
+	addedBy: string;
+	addedAt: number;
+}
+
 export interface ArenaMatch {
 	id: string;
 	visibility: ArenaMatchVisibility;
@@ -352,6 +361,8 @@ export interface ArenaMatch {
 	disputeReason: string | null;
 	/** A short system note (e.g., auto-forfeit or auto-cancel). */
 	resolutionNote: string | null;
+	/** Evidence links submitted by either side (URLs + optional note). */
+	evidence: ArenaEvidenceItem[];
 	winnerSide: ArenaSideKey | null;
 	scoreA: number | null;
 	scoreB: number | null;
