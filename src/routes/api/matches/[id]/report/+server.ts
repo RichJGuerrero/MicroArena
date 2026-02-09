@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getArenaMatch, getArenaMatchViews, reportArenaMatchResult } from '$lib/server/store';
+import { getArenaMatch, getArenaMatchViews, isUserBanned, reportArenaMatchResult } from '$lib/server/store';
 import type { ArenaSideKey } from '$lib/types';
 
 // ============================================
@@ -20,6 +20,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		const winnerSide = String(body.winnerSide ?? '').trim() as ArenaSideKey;
 
 		if (!userId) return json({ error: 'userId is required' }, { status: 400 });
+		if (isUserBanned(userId)) return json({ error: 'BANNED' }, { status: 403 });
 		if (winnerSide !== 'A' && winnerSide !== 'B') {
 			return json({ error: 'winnerSide must be A or B' }, { status: 400 });
 		}

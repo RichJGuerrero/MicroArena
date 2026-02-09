@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { respondToArenaChallenge, getArenaMatchViews } from '$lib/server/store';
+import { respondToArenaChallenge, getArenaMatchViews, isUserBanned } from '$lib/server/store';
 
 // ============================================
 // /api/matches/:id/respond
@@ -18,6 +18,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		const accept = action === 'ACCEPT';
 
 		if (!userId) return json({ error: 'userId is required' }, { status: 400 });
+		if (isUserBanned(userId)) return json({ error: 'BANNED' }, { status: 403 });
 		if (action !== 'ACCEPT' && action !== 'DECLINE') {
 			return json({ error: 'action must be ACCEPT or DECLINE' }, { status: 400 });
 		}

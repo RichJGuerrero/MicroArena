@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { addArenaMatchEvidence, removeArenaMatchEvidence, getArenaMatch, getArenaMatchViews } from '$lib/server/store';
+import { addArenaMatchEvidence, removeArenaMatchEvidence, getArenaMatch, getArenaMatchViews, isUserBanned } from '$lib/server/store';
 
 // ============================================
 // /api/matches/:id/evidence
@@ -19,6 +19,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		const note = body.note == null ? null : String(body.note);
 
 		if (!userId) return json({ error: 'userId is required' }, { status: 400 });
+		if (isUserBanned(userId)) return json({ error: 'BANNED' }, { status: 403 });
 		if (!url) return json({ error: 'url is required' }, { status: 400 });
 
 		const existing = getArenaMatch(id);
@@ -43,6 +44,7 @@ export const DELETE: RequestHandler = async ({ params, request }) => {
 		const evidenceId = String(body.evidenceId ?? '').trim();
 
 		if (!userId) return json({ error: 'userId is required' }, { status: 400 });
+		if (isUserBanned(userId)) return json({ error: 'BANNED' }, { status: 403 });
 		if (!evidenceId) return json({ error: 'evidenceId is required' }, { status: 400 });
 
 		const existing = getArenaMatch(id);

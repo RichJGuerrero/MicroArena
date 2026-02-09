@@ -21,6 +21,12 @@ export interface User {
 	avatar: string | null;
 	clanId: string | null;    // Current clan ID
 	integrity: number;        // 0-100, starts at 100
+	/** User is permanently banned from participating (e.g., confirmed cheating). */
+	banned: boolean;
+	/** Human-readable reason shown in admin tools and (optionally) user-facing errors. */
+	bannedReason: string | null;
+	/** Timestamp when the ban was applied. */
+	bannedAt: number | null;
 	createdAt: number;
 	updatedAt: number;
 }
@@ -266,6 +272,32 @@ export interface Match {
 export interface MatchParticipant {
 	id: string;
 	username: string;
+	/** Optional: included in admin/ref tools. */
+	banned?: boolean;
+}
+
+// ============================================
+// ADMIN / REF AUDIT LOG
+// ============================================
+export type AuditAction =
+	| 'ADMIN_LOGIN'
+	| 'ADMIN_LOGOUT'
+	| 'ADMIN_RESOLVE_MATCH'
+	| 'ADMIN_INTEGRITY'
+	| 'ADMIN_BAN'
+	| 'ADMIN_UNBAN';
+
+export interface AuditEvent {
+	id: string;
+	action: AuditAction;
+	/** When known, the logged-in MicroArena user who performed the action. */
+	actorUserId: string | null;
+	/** Optional targets for filtering. */
+	targetUserId: string | null;
+	matchId: string | null;
+	clanId: string | null;
+	note: string | null;
+	createdAt: number;
 }
 
 // ============================================

@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { createArenaMatch, getArenaMatchViews } from '$lib/server/store';
+import { createArenaMatch, getArenaMatchViews, isUserBanned } from '$lib/server/store';
 import type { MatchQueue, MatchScope, BeefMatch } from '$lib/types';
 
 // ============================================
@@ -31,6 +31,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		if (!createdBy) {
 			return json({ error: 'createdBy is required' }, { status: 400 });
 		}
+		if (isUserBanned(createdBy)) return json({ error: 'BANNED' }, { status: 403 });
 		if (!ruleset) {
 			return json({ error: 'ruleset is required' }, { status: 400 });
 		}

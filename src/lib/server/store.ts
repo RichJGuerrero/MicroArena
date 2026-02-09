@@ -20,6 +20,7 @@ import type {
 	UserStats,
 	ClanStats,
 	MatchParticipant,
+	AuditEvent,
 	ClanInvite,
 	InboxItemView
 } from '$lib/types';
@@ -39,6 +40,9 @@ const tournaments = new Map<string, Tournament>();
 const tournamentTeams = new Map<string, Map<string, TournamentTeam>>(); // tournamentId -> (clanId -> team)
 const matches = new Map<string, Match>();
 const ladderRatings = new Map<string, number>(); // clanId -> rating
+
+// Admin / Ref audit log
+const auditEvents = new Map<string, AuditEvent>();
 
 
 // Clan invites (invite-only clans)
@@ -67,6 +71,7 @@ const FILES = {
 	ladderRatings: 'ladderRatings.json',
 	arenaMatches: 'arenaMatches.json',
 	clanInvites: 'clanInvites.json'
+	, auditEvents: 'auditEvents.json'
 } as const;
 
 function ensureDataDir() {
@@ -104,7 +109,21 @@ function loadFromDisk() {
 	// Users
 	users.clear();
 	for (const u of readJson(FILES.users, [] as any[])) {
+		// Backward-compatible defaults
+		if (u.banned === undefined) u.banned = false;
+		if (u.bannedReason === undefined) u.bannedReason = null;
+		if (u.bannedAt === undefined) u.bannedAt = null;
 		users.set(u.id, u as any);
+	}
+
+	// Audit events
+	auditEvents.clear();
+	{
+		const raw = readJson(FILES.auditEvents, [] as any);
+		const list: any[] = Array.isArray(raw) ? raw : Object.values(raw ?? {});
+		for (const ev of list) {
+			if (ev?.id) auditEvents.set(ev.id, ev);
+		}
 	}
 
 	// Clans
@@ -213,6 +232,7 @@ function saveToDisk() {
 	writeJson(FILES.ladderRatings, Object.fromEntries(Array.from(ladderRatings.entries())));
 	writeJson(FILES.arenaMatches, Array.from(arenaMatches.values()));
 	writeJson(FILES.clanInvites, Array.from(clanInvites.values()));
+	writeJson(FILES.auditEvents, Array.from(auditEvents.values()));
 }
 
 let saveTimer: NodeJS.Timeout | null = null;
@@ -238,6 +258,31 @@ export function generateId(): string {
 }
 
 // ============================================
+// ADMIN / REF AUDIT LOG
+// ============================================
+export function createAuditEvent(data: Omit<AuditEvent, 'id' | 'createdAt'>): AuditEvent {
+	const ev: AuditEvent = {
+		id: generateId(),
+		action: data.action,
+		actorUserId: data.actorUserId ?? null,
+		targetUserId: data.targetUserId ?? null,
+		matchId: data.matchId ?? null,
+		clanId: data.clanId ?? null,
+		note: data.note ?? null,
+		createdAt: Date.now()
+	};
+	auditEvents.set(ev.id, ev);
+	touch();
+	return ev;
+}
+
+export function getAuditEvents(limit: number = 100): AuditEvent[] {
+	return Array.from(auditEvents.values())
+		.sort((a, b) => b.createdAt - a.createdAt)
+		.slice(0, Math.max(1, Math.min(500, limit)));
+}
+
+// ============================================
 // MATCH BOARD HELPERS
 // ============================================
 function getTeamSize(format: BeefMatch['format']): number {
@@ -255,7 +300,7 @@ function toParticipants(ids: string[]): MatchParticipant[] {
 	return ids
 		.map((id) => users.get(id))
 		.filter((u): u is User => !!u)
-		.map((u) => ({ id: u.id, username: u.username }));
+		.map((u) => ({ id: u.id, username: u.username, banned: u.banned }));
 }
 
 // ============================================
@@ -442,6 +487,9 @@ export function createUser(data: {
 		avatar: data.avatar || null,
 		clanId: null,
 		integrity: 100,
+		banned: false,
+		bannedReason: null,
+		bannedAt: null,
 		createdAt: Date.now(),
 		updatedAt: Date.now()
 	};
@@ -487,6 +535,53 @@ export function updateUser(userId: string, data: Partial<User>): User | null {
 	const updated = { ...user, ...data, updatedAt: Date.now() };
 	users.set(userId, updated);
 	touch();
+	return updated;
+}
+
+export function isUserBanned(userId: string): boolean {
+	const user = users.get(userId);
+	return Boolean(user?.banned);
+}
+
+export function banUser(data: { targetUserId: string; reason: string; actorUserId?: string | null; matchId?: string | null }): User {
+	const user = users.get(data.targetUserId);
+	if (!user) throw new Error('User not found');
+	if (user.banned) return user;
+	const updated = updateUser(user.id, {
+		banned: true,
+		bannedReason: data.reason?.trim() ? data.reason.trim() : 'Banned by admin',
+		bannedAt: Date.now()
+	});
+	if (!updated) throw new Error('Failed to ban user');
+	createAuditEvent({
+		action: 'ADMIN_BAN',
+		actorUserId: data.actorUserId ?? null,
+		targetUserId: user.id,
+		matchId: data.matchId ?? null,
+		clanId: updated.clanId,
+		note: updated.bannedReason
+	});
+	return updated;
+}
+
+export function unbanUser(data: { targetUserId: string; actorUserId?: string | null; note?: string | null }): User {
+	const user = users.get(data.targetUserId);
+	if (!user) throw new Error('User not found');
+	if (!user.banned) return user;
+	const updated = updateUser(user.id, {
+		banned: false,
+		bannedReason: null,
+		bannedAt: null
+	});
+	if (!updated) throw new Error('Failed to unban user');
+	createAuditEvent({
+		action: 'ADMIN_UNBAN',
+		actorUserId: data.actorUserId ?? null,
+		targetUserId: user.id,
+		matchId: null,
+		clanId: updated.clanId,
+		note: data.note ?? null
+	});
 	return updated;
 }
 
@@ -1556,6 +1651,21 @@ export function completeArenaMatch(id: string, winnerSide: ArenaSideKey, scoreA?
 	arenaMatches.set(id, match);
 	touch();
 	return match;
+}
+
+// Admin/ref override: resolve a match (especially DISPUTED) with an explicit outcome + optional note.
+export function adminResolveArenaMatch(id: string, data: {
+	winnerSide: ArenaSideKey;
+	scoreA?: number;
+	scoreB?: number;
+	resolutionNote?: string | null;
+}): ArenaMatch {
+	const resolved = completeArenaMatch(id, data.winnerSide, data.scoreA, data.scoreB);
+	resolved.resolutionNote = (data.resolutionNote ?? '').trim() || null;
+	resolved.updatedAt = Date.now();
+	arenaMatches.set(id, resolved);
+	touch();
+	return resolved;
 }
 
 // ============================================
