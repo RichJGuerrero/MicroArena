@@ -719,7 +719,10 @@
 								</div>
 							{/if}
 
-							<div class="actions">
+						</div>
+					{/if}
+
+					<div class="actions">
 								{#if canRespond(x)}
 									<button class="btn" on:click={() => respond(x.match.id, 'ACCEPT')}>Accept</button>
 									<button class="btn secondary" on:click={() => respond(x.match.id, 'DECLINE')}>Decline</button>
@@ -827,11 +830,11 @@
 		font-size: 12px;
 		line-height: 1.3;
 	
+		}
 
-	.hint a { color: rgba(255,255,255,0.85); text-decoration: underline; }
+		.hint a { color: rgba(255,255,255,0.85); text-decoration: underline; }
 	.banner a { color: rgba(255,255,255,0.9); text-decoration: underline; }
 	.banner a:hover, .hint a:hover { opacity: 0.9; }
-}
 
 	.wide {
 		grid-column: span 2;
