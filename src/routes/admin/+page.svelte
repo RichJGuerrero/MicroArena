@@ -1,4 +1,4 @@
-\<script lang="ts">
+<script lang="ts">
 	import { onMount } from 'svelte';
 	import type { ArenaMatchView, ArenaSideKey, IntegrityEventType, AuditEvent } from '$lib/types';
 
@@ -74,6 +74,11 @@
 		return matches.find((m) => m.match.id === selectedId) ?? null;
 	}
 
+function selectedRequired(): ArenaMatchView {
+	const v = selected();
+	if (!v) throw new Error('No match selected');
+	return v;
+}
 	async function refreshAdminState() {
 		try {
 			const res = await fetch('/api/admin/me');
@@ -681,7 +686,7 @@
 					<h2>Match Details</h2>
 					<div class="text-muted">Select a match from the left panel to review.</div>
 				{:else}
-					{@const v = selected()}
+					{@const v = selectedRequired()}
 					<div class="card-header">
 						<h2>Match Details</h2>
 						<p class="text-secondary">{whoLabel(v, 'A')} vs {whoLabel(v, 'B')}</p>
