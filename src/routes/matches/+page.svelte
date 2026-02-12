@@ -25,12 +25,18 @@
 
 	const teamSize = (f: BeefMatch['format']) => {
 		switch (f) {
-			case '1v1': return 1;
-			case '2v2': return 2;
-			case '3v3': return 3;
-			case '4v4': return 4;
-			case '5v5': return 5;
-			default: return 1;
+			case '1v1':
+				return 1;
+			case '2v2':
+				return 2;
+			case '3v3':
+				return 3;
+			case '4v4':
+				return 4;
+			case '5v5':
+				return 5;
+			default:
+				return 1;
 		}
 	};
 
@@ -237,14 +243,20 @@
 		});
 	};
 
-	const openBoard = () => matches.filter((x) => {
-		const s = x.match.status;
-		return s === 'OPEN' || s === 'READY' || s === 'LIVE' || s === 'DISPUTED' || s === 'COMPLETED' || s === 'DECLINED' || s === 'CANCELLED';
-	});
-
-	function sideLabel(side: ArenaSideKey) {
-		return side === 'A' ? 'Team A' : 'Team B';
-	}
+	const openBoard = () =>
+		matches.filter((x) => {
+			const s = x.match.status;
+			return (
+				s === 'OPEN' ||
+				s === 'READY' ||
+				s === 'LIVE' ||
+				s === 'DISPUTED' ||
+				s === 'COMPLETED' ||
+				s === 'DECLINED' ||
+				s === 'CANCELLED' ||
+				s === 'PENDING'
+			);
+		});
 
 	function rosterText(x: ArenaMatchView, side: ArenaSideKey) {
 		const m = x.match;
@@ -265,12 +277,16 @@
 		const uid = myUserId();
 		if (!uid) return false;
 		const m = x.match;
+
+		// Join only when OPEN or LIVE (no late joins in READY/PENDING/etc.)
 		if (!(m.status === 'OPEN' || m.status === 'LIVE')) return false;
-		// Only allow joining direct matches if not pending
-		if (m.visibility === 'DIRECT' && (m.status !== 'OPEN' && m.status !== 'LIVE')) {
-			return false;
-		}
+
+		// Direct matches: only join once accepted/open (OPEN/LIVE already enforced above)
+		if (m.visibility === 'DIRECT' && !(m.status === 'OPEN' || m.status === 'LIVE')) return false;
+
+		// Already in roster?
 		if (inRoster(x)) return false;
+
 		const size = teamSize(m.format);
 		if (side === 'A' && x.teamAPlayers.length >= size) return false;
 		if (side === 'B' && x.teamBPlayers.length >= size) return false;
@@ -278,7 +294,9 @@
 		if (m.scope === 'CLAN') {
 			const cid = myClanId();
 			if (!cid) return false;
+
 			if (side === 'A') return m.teamA.clanId === cid;
+
 			// Team B: can claim if open + no clan set; otherwise must match
 			return !m.teamB.clanId ? m.visibility === 'OPEN' : m.teamB.clanId === cid;
 		}
@@ -354,19 +372,13 @@
 	}
 
 	function reportLabel(side: ArenaSideKey | null) {
-		return side ? sideLabel(side) : 'No report yet';
+		return side ? (side === 'A' ? 'Team A' : 'Team B') : 'No report yet';
 	}
 
 	function myReport(x: ArenaMatchView): ArenaSideKey | null {
 		const t = inRoster(x);
 		if (!t) return null;
 		return t === 'A' ? x.match.reportA : x.match.reportB;
-	}
-
-	function otherReport(x: ArenaMatchView): ArenaSideKey | null {
-		const t = inRoster(x);
-		if (!t) return null;
-		return t === 'A' ? x.match.reportB : x.match.reportA;
 	}
 
 	function evidenceList(x: ArenaMatchView, side: ArenaSideKey): ArenaEvidenceItem[] {
@@ -381,7 +393,7 @@
 		const m = x.match;
 		if (m.scope === 'CLAN') {
 			const clan = side === 'A' ? x.teamAClan : x.teamBClan;
-			return clan ? `${clan.tag} (${clan.name})` : (side === 'A' ? 'Your Clan' : 'Open');
+			return clan ? `${clan.tag} (${clan.name})` : side === 'A' ? 'Your Clan' : 'Open';
 		}
 		// PLAYER
 		const roster = side === 'A' ? x.teamAPlayers : x.teamBPlayers;
@@ -390,24 +402,31 @@
 
 	function statusBadge(s: string) {
 		switch (s) {
-			case 'PENDING': return 'Pending';
-			case 'OPEN': return 'Open';
-			case 'READY': return 'Ready Up';
-			case 'LIVE': return 'Live';
-			case 'DISPUTED': return 'Disputed';
-			case 'COMPLETED': return 'Completed';
-			case 'DECLINED': return 'Declined';
-			case 'CANCELLED': return 'Cancelled';
-			default: return s;
+			case 'PENDING':
+				return 'Pending';
+			case 'OPEN':
+				return 'Open';
+			case 'READY':
+				return 'Ready Up';
+			case 'LIVE':
+				return 'Live';
+			case 'DISPUTED':
+				return 'Disputed';
+			case 'COMPLETED':
+				return 'Completed';
+			case 'DECLINED':
+				return 'Declined';
+			case 'CANCELLED':
+				return 'Cancelled';
+			default:
+				return s;
 		}
 	}
 </script>
 
 <div class="container">
 	<h1>Matches</h1>
-	<p class="lead">
-		Create open matches like old-school GB/CMG, or send direct challenges.
-	</p>
+	<p class="lead">Create open matches like old-school GB/CMG, or send direct challenges.</p>
 
 	{#if error}
 		<div class="banner error">{error}</div>
@@ -418,6 +437,7 @@
 		{#if !$isAuthenticated}
 			<div class="hint">Log in to create matches, join teams, and accept challenges.</div>
 		{/if}
+
 		<div class="grid">
 			<div class="field">
 				<label for="matchVisibility">Type</label>
@@ -503,6 +523,7 @@
 								</div>
 								<div class="status">{statusBadge(x.match.status)}</div>
 							</div>
+
 							<div class="teams">
 								<div>
 									<div class="team-label">Team A</div>
@@ -513,6 +534,7 @@
 									<div class="team-title">{teamTitle(x, 'B')}</div>
 								</div>
 							</div>
+
 							<div class="actions">
 								<button
 									class="btn"
@@ -537,6 +559,7 @@
 
 		<section class="section">
 			<h2>Match Board</h2>
+
 			{#if openBoard().length === 0}
 				<p class="muted">No matches yet. Create the first one and light the signal.</p>
 			{:else}
@@ -564,11 +587,9 @@
 								</div>
 							</div>
 
-							
-
 							{#if x.match.status === 'READY'}
 								<div class="banner info flow-callout">
-									Ready‑Up required: both teams must ready up before the timer expires.
+									Ready-Up required: both teams must ready up before the timer expires.
 									<a href="/refs#ready">Learn more</a>
 								</div>
 							{:else if x.match.status === 'LIVE'}
@@ -578,7 +599,7 @@
 								</div>
 							{:else if x.match.status === 'DISPUTED'}
 								<div class="banner warn flow-callout">
-									Dispute flow: update your report to match the other side (if you mis‑clicked), or wait for a ref decision.
+									Dispute flow: update your report to match the other side (if you mis-clicked), or wait for a ref decision.
 									<a href="/refs#disputes">How disputes work</a>
 								</div>
 							{/if}
@@ -589,7 +610,10 @@
 
 							{#if x.match.status === 'READY'}
 								<div class="ready-panel">
-									<div class="report-row"><span class="muted">Ready:</span> Team A {isSideReady(x,'A') ? '✓' : '…'} | Team B {isSideReady(x,'B') ? '✓' : '…'}</div>
+									<div class="report-row">
+										<span class="muted">Ready:</span>
+										Team A {isSideReady(x, 'A') ? '✓' : '…'} | Team B {isSideReady(x, 'B') ? '✓' : '…'}
+									</div>
 									<div class="report-row"><span class="muted">Time left:</span> {readyTimeLeftLabel(x.match.readyDeadlineAt)}</div>
 									<div class="hint">Both teams must ready up to unlock result reporting.</div>
 								</div>
@@ -597,9 +621,7 @@
 
 							{#if x.match.status === 'COMPLETED'}
 								{#if x.match.winnerSide}
-									<div class="winner">
-										Winner: {x.match.winnerSide === 'A' ? 'Team A' : 'Team B'}
-									</div>
+									<div class="winner">Winner: {x.match.winnerSide === 'A' ? 'Team A' : 'Team B'}</div>
 								{:else}
 									<div class="winner">Winner: —</div>
 								{/if}
@@ -609,10 +631,16 @@
 								<div class="report-panel">
 									<div class="report-row"><span class="muted">Team A reported:</span> {reportLabel(x.match.reportA)}</div>
 									<div class="report-row"><span class="muted">Team B reported:</span> {reportLabel(x.match.reportB)}</div>
+
 									{#if x.match.status === 'DISPUTED'}
 										<div class="banner warn">Dispute: {x.match.disputeReason ?? 'Conflicting reports'}</div>
 									{/if}
-									<div class="hint flow-hint">How it works: both teams report a winner. If reports match, the match completes. If not, it becomes DISPUTED until resolved. <a href="/refs#reporting">Learn more about reporting</a></div>
+
+									<div class="hint flow-hint">
+										How it works: both teams report a winner. If reports match, the match completes. If not, it becomes DISPUTED until resolved.
+										<a href="/refs#reporting">Learn more about reporting</a>
+									</div>
+
 									{#if canReport(x)}
 										<div class="report-actions">
 											<button
@@ -636,99 +664,103 @@
 											<div class="hint">Only match participants can report a result.</div>
 										{/if}
 									{/if}
+								</div>
+							{/if}
 
-									</div>
-								{/if}
+							{#if x.match.status === 'DISPUTED' || x.match.status === 'LIVE'}
+								<div class="evidence">
+									<div class="evidence-title">Evidence</div>
 
-								<!-- Evidence (clips/screenshots) for dispute resolution -->
-								{#if x.match.status === 'DISPUTED' || x.match.status === 'LIVE'}
-									<div class="evidence">
-										<div class="evidence-title">Evidence</div>
-										{#if inRoster(x)}
-											<div class="evidence-form">
-												<input
-													class="input"
-													placeholder="Paste clip or screenshot URL (https://...)"
-													bind:value={evidenceUrl[x.match.id]}
-												/>
-												<input
-													class="input"
-													placeholder="Optional note (e.g., Round 3, 0:42)"
-													bind:value={evidenceNote[x.match.id]}
-												/>
-												<button
-													class="btn secondary"
-													on:click={() => addEvidence(x.match.id)}
-													disabled={actionBusy === `evidence:add:${x.match.id}`}
-												>
-													Add Evidence
-												</button>
-											</div>
-										{:else}
-											<div class="hint">Only match participants can submit evidence.</div>
-										{/if}
+									{#if inRoster(x)}
+										<div class="evidence-form">
+											<input
+												class="input"
+												placeholder="Paste clip or screenshot URL (https://...)"
+												bind:value={evidenceUrl[x.match.id]}
+											/>
+											<input
+												class="input"
+												placeholder="Optional note (e.g., Round 3, 0:42)"
+												bind:value={evidenceNote[x.match.id]}
+											/>
+											<button
+												class="btn secondary"
+												on:click={() => addEvidence(x.match.id)}
+												disabled={actionBusy === `evidence:add:${x.match.id}`}
+											>
+												Add Evidence
+											</button>
+										</div>
+									{:else}
+										<div class="hint">Only match participants can submit evidence.</div>
+									{/if}
 
-										<div class="evidence-grid">
-											<div class="evidence-col">
-												<div class="muted small">Team A</div>
-												{#if evidenceList(x, 'A').length === 0}
-													<div class="muted small">No evidence yet.</div>
-												{:else}
-													{#each evidenceList(x, 'A') as ev (ev.id)}
-														<div class="evidence-item">
-															<a class="evidence-link" href={ev.url} target="_blank" rel="noreferrer">{ev.url}</a>
-															{#if ev.note}
-																<div class="muted small">{ev.note}</div>
-															{/if}
-															{#if ev.addedBy === myUserId()}
-																<button
-																	class="btn ghost sm"
-																	on:click={() => removeEvidence(x.match.id, ev.id)}
-																	disabled={actionBusy === `evidence:remove:${x.match.id}:${ev.id}`}
-																>
-																	Remove
-																</button>
-															{/if}
-														</div>
-													{/each}
-												{/if}
-											</div>
-											<div class="evidence-col">
-												<div class="muted small">Team B</div>
-												{#if evidenceList(x, 'B').length === 0}
-													<div class="muted small">No evidence yet.</div>
-												{:else}
-													{#each evidenceList(x, 'B') as ev (ev.id)}
-														<div class="evidence-item">
-															<a class="evidence-link" href={ev.url} target="_blank" rel="noreferrer">{ev.url}</a>
-															{#if ev.note}
-																<div class="muted small">{ev.note}</div>
-															{/if}
-															{#if ev.addedBy === myUserId()}
-																<button
-																	class="btn ghost sm"
-																	on:click={() => removeEvidence(x.match.id, ev.id)}
-																	disabled={actionBusy === `evidence:remove:${x.match.id}:${ev.id}`}
-																>
-																	Remove
-																</button>
-															{/if}
-														</div>
+									<div class="evidence-grid">
+										<div class="evidence-col">
+											<div class="muted small">Team A</div>
+											{#if evidenceList(x, 'A').length === 0}
+												<div class="muted small">No evidence yet.</div>
+											{:else}
+												{#each evidenceList(x, 'A') as ev (ev.id)}
+													<div class="evidence-item">
+														<a class="evidence-link" href={ev.url} target="_blank" rel="noreferrer">{ev.url}</a>
+														{#if ev.note}
+															<div class="muted small">{ev.note}</div>
+														{/if}
+														{#if ev.addedBy === myUserId()}
+															<button
+																class="btn ghost sm"
+																on:click={() => removeEvidence(x.match.id, ev.id)}
+																disabled={actionBusy === `evidence:remove:${x.match.id}:${ev.id}`}
+															>
+																Remove
+															</button>
+														{/if}
+													</div>
+												{/each}
+											{/if}
+										</div>
+
+										<div class="evidence-col">
+											<div class="muted small">Team B</div>
+											{#if evidenceList(x, 'B').length === 0}
+												<div class="muted small">No evidence yet.</div>
+											{:else}
+												{#each evidenceList(x, 'B') as ev (ev.id)}
+													<div class="evidence-item">
+														<a class="evidence-link" href={ev.url} target="_blank" rel="noreferrer">{ev.url}</a>
+														{#if ev.note}
+															<div class="muted small">{ev.note}</div>
+														{/if}
+														{#if ev.addedBy === myUserId()}
+															<button
+																class="btn ghost sm"
+																on:click={() => removeEvidence(x.match.id, ev.id)}
+																disabled={actionBusy === `evidence:remove:${x.match.id}:${ev.id}`}
+															>
+																Remove
+															</button>
+														{/if}
+													</div>
 												{/each}
 											{/if}
 										</div>
 									</div>
-									<div class="hint">Tip: link a clip, a screenshot, or a timestamped VOD segment. Keep it clean and factual.</div>
+
+									<div class="hint">
+										Tip: link a clip, a screenshot, or a timestamped VOD segment. Keep it clean and factual.
+									</div>
 								</div>
 							{/if}
 
-						</div>
-					{/if}
-
-					<div class="actions">
+							<div class="actions">
 								{#if canRespond(x)}
-									<button class="btn" on:click={() => respond(x.match.id, 'ACCEPT')}>Accept</button>
-									<button class="btn secondary" on:click={() => respond(x.match.id, 'DECLINE')}>Decline</button>
+									<button class="btn" on:click={() => respond(x.match.id, 'ACCEPT')} disabled={actionBusy === `respond:${x.match.id}:ACCEPT`}>
+										Accept
+									</button>
+									<button class="btn secondary" on:click={() => respond(x.match.id, 'DECLINE')} disabled={actionBusy === `respond:${x.match.id}:DECLINE`}>
+										Decline
+									</button>
 								{:else}
 									{#if x.match.status === 'READY'}
 										{#if myReadySide(x)}
@@ -758,7 +790,6 @@
 											Join Team B
 										</button>
 									{/if}
-
 								{/if}
 							</div>
 						</div>
@@ -832,25 +863,20 @@
 		color: rgba(255, 255, 255, 0.6);
 		font-size: 12px;
 		line-height: 1.3;
-	
-		}
+	}
 
-		.hint a { color: rgba(255,255,255,0.85); text-decoration: underline; }
-	.banner a { color: rgba(255,255,255,0.9); text-decoration: underline; }
-	.banner a:hover, .hint a:hover { opacity: 0.9; }
-
-		.hint a {
-			color: rgba(255, 255, 255, 0.85);
-			text-decoration: underline;
-		}
-		.banner a {
-			color: rgba(255, 255, 255, 0.9);
-			text-decoration: underline;
-		}
-		.banner a:hover,
-		.hint a:hover {
-			opacity: 0.9;
-		}
+	.hint a {
+		color: rgba(255, 255, 255, 0.85);
+		text-decoration: underline;
+	}
+	.banner a {
+		color: rgba(255, 255, 255, 0.9);
+		text-decoration: underline;
+	}
+	.banner a:hover,
+	.hint a:hover {
+		opacity: 0.9;
+	}
 
 	.wide {
 		grid-column: span 2;
@@ -861,6 +887,7 @@
 		display: flex;
 		gap: 10px;
 		flex-wrap: wrap;
+		align-items: center;
 	}
 
 	.banner {
@@ -883,12 +910,12 @@
 		color: rgba(255, 255, 255, 0.92);
 	}
 
-
 	.banner.info {
 		border-color: rgba(80, 160, 255, 0.35);
 		background: rgba(80, 160, 255, 0.12);
 		color: rgba(255, 255, 255, 0.92);
 	}
+
 	.stack {
 		display: flex;
 		flex-direction: column;
@@ -973,7 +1000,7 @@
 	.evidence {
 		margin-top: 12px;
 		padding-top: 12px;
-		border-top: 1px solid rgba(255, 255, 255, 0.10);
+		border-top: 1px solid rgba(255, 255, 255, 0.1);
 	}
 
 	.evidence-title {
@@ -997,7 +1024,7 @@
 	}
 
 	.evidence-col {
-		border: 1px solid rgba(255, 255, 255, 0.10);
+		border: 1px solid rgba(255, 255, 255, 0.1);
 		border-radius: 12px;
 		padding: 10px;
 		background: rgba(0, 0, 0, 0.18);
@@ -1006,7 +1033,7 @@
 	.evidence-item {
 		margin-top: 10px;
 		padding-top: 10px;
-		border-top: 1px solid rgba(255, 255, 255, 0.10);
+		border-top: 1px solid rgba(255, 255, 255, 0.1);
 	}
 
 	.evidence-link {
@@ -1081,6 +1108,12 @@
 
 	@media (max-width: 640px) {
 		.teams {
+			grid-template-columns: 1fr;
+		}
+		.evidence-form {
+			grid-template-columns: 1fr;
+		}
+		.evidence-grid {
 			grid-template-columns: 1fr;
 		}
 	}
