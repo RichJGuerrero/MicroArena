@@ -282,6 +282,7 @@ export interface MatchParticipant {
 export type AuditAction =
 	| 'ADMIN_LOGIN'
 	| 'ADMIN_LOGOUT'
+	| 'ADMIN_FORCE_DISPUTE'
 	| 'ADMIN_RESOLVE_MATCH'
 	| 'ADMIN_INTEGRITY'
 	| 'ADMIN_BAN'

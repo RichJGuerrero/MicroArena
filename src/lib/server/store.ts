@@ -1668,6 +1668,26 @@ export function adminResolveArenaMatch(id: string, data: {
 	return resolved;
 }
 
+// Admin/ref override: forcibly mark a match as DISPUTED (useful for testing ref workflows).
+export function adminForceDisputeArenaMatch(id: string, data: { disputeReason?: string | null }): ArenaMatch {
+	const match = arenaMatches.get(id);
+	if (!match) throw new Error('Match not found');
+	if (match.status === 'COMPLETED') throw new Error('Cannot dispute a completed match');
+
+	const now = Date.now();
+	match.status = 'DISPUTED';
+	match.disputedAt = now;
+	match.disputeReason = (data.disputeReason ?? '').trim() || 'Admin forced dispute';
+	match.updatedAt = now;
+	// Clear winner signals; keep any evidence already submitted.
+	match.winnerSide = null;
+	match.completedAt = null;
+	match.resolutionNote = null;
+	arenaMatches.set(id, match);
+	touch();
+	return match;
+}
+
 // ============================================
 // MATCH HISTORY (Derived)
 // ============================================

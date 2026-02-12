@@ -637,6 +637,9 @@
 										{/if}
 									{/if}
 
+									</div>
+								{/if}
+
 								<!-- Evidence (clips/screenshots) for dispute resolution -->
 								{#if x.match.status === 'DISPUTED' || x.match.status === 'LIVE'}
 									<div class="evidence">
@@ -826,12 +829,20 @@
 		color: rgba(255, 255, 255, 0.6);
 		font-size: 12px;
 		line-height: 1.3;
-	
-
-	.hint a { color: rgba(255,255,255,0.85); text-decoration: underline; }
-	.banner a { color: rgba(255,255,255,0.9); text-decoration: underline; }
-	.banner a:hover, .hint a:hover { opacity: 0.9; }
 }
+
+		.hint a {
+			color: rgba(255, 255, 255, 0.85);
+			text-decoration: underline;
+		}
+		.banner a {
+			color: rgba(255, 255, 255, 0.9);
+			text-decoration: underline;
+		}
+		.banner a:hover,
+		.hint a:hover {
+			opacity: 0.9;
+		}
 
 	.wide {
 		grid-column: span 2;
