@@ -343,11 +343,39 @@ export interface ArenaEvidenceItem {
 	note: string | null;
 	addedBy: string;
 	addedAt: number;
+	// Optional AI annotations (v1: ref assist / triage). These are never the "final decision".
+	aiSummary?: string | null;
+	aiFlags?: AiFlag[] | null;
+	aiScore?: number | null;
 	// Future upload fields (kept optional for backwards compatibility)
 	fileName?: string | null;
 	mimeType?: string | null;
 	bytes?: number | null;
 	storageKey?: string | null;
+}
+
+export type AiFlagSeverity = 'LOW' | 'MED' | 'HIGH';
+
+export interface AiFlag {
+	code: string;
+	severity: AiFlagSeverity;
+	message: string;
+}
+
+export type AiProviderKey = 'MOCK' | 'OPENAI' | 'NONE';
+
+export interface ArenaAiAssist {
+	provider: AiProviderKey;
+	model: string | null;
+	/** Short, human-readable summary for refs. */
+	summary: string;
+	/** Any "things to look at" flags. Human ref still decides. */
+	flags: AiFlag[];
+	/** 0..1 confidence-like score (best-effort). */
+	score: number | null;
+	updatedAt: number;
+	/** Optional error if the provider failed (we still keep the last good output). */
+	error?: string | null;
 }
 
 export interface ArenaMatch {
@@ -405,6 +433,8 @@ export interface ArenaMatch {
 	resolutionNote: string | null;
 	/** Evidence links submitted by either side (URLs + optional note). */
 	evidence: ArenaEvidenceItem[];
+	/** AI ref assist output (triage + summary). Optional and non-binding. */
+	aiAssist?: ArenaAiAssist | null;
 	winnerSide: ArenaSideKey | null;
 	scoreA: number | null;
 	scoreB: number | null;

@@ -270,6 +270,25 @@ function selectedRequired(): ArenaMatchView {
 		}
 	}
 
+	async function runAiAssistSelected() {
+		const v = selected();
+		if (!v) return;
+		error = null;
+		actionBusy = `ai:${v.match.id}`;
+		try {
+			const res = await fetch(`/api/admin/matches/${encodeURIComponent(v.match.id)}/ai`, { method: 'POST' });
+			const data = await res.json();
+			if (!res.ok) throw new Error(data?.error ?? 'Failed to run AI assist');
+			if (tab === 'MATCHES') await loadMatches();
+			else await loadDisputes();
+			await loadAudit(100);
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to run AI assist';
+		} finally {
+			actionBusy = null;
+		}
+	}
+
 	async function forceDisputeSelected() {
 		const v = selectedFromMatches();
 		if (!v) return;
@@ -307,6 +326,11 @@ function selectedRequired(): ArenaMatchView {
 			if (!e.url) continue;
 			window.open(e.url, '_blank', 'noopener,noreferrer');
 		}
+	}
+
+	function openAllEvidence(v: ArenaMatchView) {
+		openEvidence(v, 'A');
+		openEvidence(v, 'B');
 	}
 
 	async function copyEvidence(v: ArenaMatchView) {
@@ -716,6 +740,7 @@ function selectedRequired(): ArenaMatchView {
 							<h3 style="margin:0;">Evidence</h3>
 							{#if (v.match.evidence?.length ?? 0) > 0}
 								<div style="display:flex; gap:8px; flex-wrap:wrap;">
+									<button class="btn ghost sm" on:click={() => openAllEvidence(v)}>Open All</button>
 									<button class="btn ghost sm" on:click={() => openEvidence(v, 'A')}>Open Side A</button>
 									<button class="btn ghost sm" on:click={() => openEvidence(v, 'B')}>Open Side B</button>
 									<button class="btn ghost sm" on:click={() => copyEvidence(v)}>Copy list</button>
@@ -738,6 +763,37 @@ function selectedRequired(): ArenaMatchView {
 										</div>
 									{/each}
 								</div>
+							{/if}
+
+							<hr style="border:none; border-top:1px solid rgba(255,255,255,0.08); margin:14px 0;" />
+							<div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; align-items:center;">
+								<h3 style="margin:0;">AI Assist (Ref Triage)</h3>
+								<button class="btn ghost sm" on:click={runAiAssistSelected} disabled={actionBusy?.startsWith('ai:')}> 
+									{actionBusy?.startsWith('ai:') ? 'Running…' : 'Run AI Assist'}
+								</button>
+							</div>
+							{#if v.match.aiAssist}
+								<div class="text-muted" style="font-size:0.85rem;">Last run: {new Date(v.match.aiAssist.updatedAt).toLocaleString()} · Provider: {v.match.aiAssist.provider}{v.match.aiAssist.model ? ` (${v.match.aiAssist.model})` : ''}</div>
+								{#if v.match.aiAssist.error}
+									<div class="text-secondary" style="margin-top:6px;">Provider note: {v.match.aiAssist.error}</div>
+								{/if}
+								<div class="card" style="padding:14px; margin-top:10px;">
+									<div class="text-secondary">{v.match.aiAssist.summary}</div>
+									{#if (v.match.aiAssist.flags?.length ?? 0) > 0}
+										<div class="mt-sm" style="display:flex; flex-direction:column; gap:8px;">
+											{#each v.match.aiAssist.flags as f}
+												<div class="card muted" style="padding:10px;">
+													<strong>{f.severity}</strong> · <span class="text-muted">{f.code}</span>
+													<div class="text-secondary mt-xs">{f.message}</div>
+												</div>
+											{/each}
+										</div>
+									{:else}
+										<div class="text-muted mt-sm">No flags.</div>
+									{/if}
+								</div>
+							{:else}
+								<div class="text-muted">No AI assist run yet. This is optional, non-binding triage for refs.</div>
 							{/if}
 						</div>
 

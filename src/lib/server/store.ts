@@ -29,6 +29,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { validateEvidenceUrl } from '$lib/server/evidence';
+import { runRefAssist } from '$lib/server/aiAssist';
 
 // ============================================
 // DATA STORES
@@ -201,6 +202,7 @@ function loadFromDisk() {
 		if (m.disputedAt === undefined) m.disputedAt = null;
 		if (m.disputeReason === undefined) m.disputeReason = null;
 		if (m.resolutionNote === undefined) m.resolutionNote = null;
+		if (m.aiAssist === undefined) m.aiAssist = null;
 		if (!Array.isArray(m.evidence)) m.evidence = [];
 		arenaMatches.set(m.id, m as any);
 	}
@@ -1600,6 +1602,9 @@ export function addArenaMatchEvidence(id: string, userId: string, url: string, n
 		addedAt: now
 	});
 
+	// Evidence changed -> AI assist output is now potentially stale.
+	(match as any).aiAssist = null;
+
 	match.updatedAt = now;
 	arenaMatches.set(id, match);
 	touch();
@@ -1619,6 +1624,22 @@ export function removeArenaMatchEvidence(id: string, userId: string, evidenceId:
 	// V0: only the user who added the evidence can remove it.
 	if (item.addedBy !== userId) throw new Error('You can only remove evidence you added');
 	evidence.splice(idx, 1);
+	// Evidence changed -> AI assist output is now potentially stale.
+	(match as any).aiAssist = null;
+	match.updatedAt = Date.now();
+	arenaMatches.set(id, match);
+	touch();
+	return match;
+}
+
+// ============================================
+// AI REF ASSIST (Admin only via API)
+// ============================================
+export async function runArenaMatchRefAssist(id: string): Promise<ArenaMatch> {
+	const match = arenaMatches.get(id);
+	if (!match) throw new Error('Match not found');
+	const ai = await runRefAssist(match);
+	(match as any).aiAssist = ai;
 	match.updatedAt = Date.now();
 	arenaMatches.set(id, match);
 	touch();
