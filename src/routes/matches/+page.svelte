@@ -1,7 +1,14 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { currentUser, isAuthenticated } from '$lib/auth';
-	import type { ArenaEvidenceItem, ArenaMatchView, ArenaSideKey, BeefMatch, MatchQueue, MatchScope } from '$lib/types';
+	import type {
+		ArenaEvidenceItem,
+		ArenaMatchView,
+		ArenaSideKey,
+		BeefMatch,
+		MatchQueue,
+		MatchScope
+	} from '$lib/types';
 
 	type Visibility = 'OPEN' | 'DIRECT';
 
@@ -10,6 +17,12 @@
 	let error: string | null = null;
 	let actionBusy: string | null = null;
 	let now = Date.now();
+
+	// UI: compact match board (GB/CMG-style)
+	let expanded: Record<string, boolean> = {};
+	function toggleDetails(id: string) {
+		expanded[id] = !expanded[id];
+	}
 
 	// Evidence form state (per match id)
 	let evidenceUrl: Record<string, string> = {};
@@ -22,6 +35,7 @@
 	let queue: MatchQueue = 'RANKED';
 	let ruleset = 'Standard Rules';
 	let target = '';
+	let scheduledTimeLocal = '';
 
 	const teamSize = (f: BeefMatch['format']) => {
 		switch (f) {
@@ -104,12 +118,14 @@
 					queue,
 					ruleset,
 					createdBy: userId,
+					scheduledTime: scheduledTimeLocal ? Date.parse(scheduledTimeLocal) : undefined,
 					target: visibility === 'DIRECT' ? target : undefined
 				})
 			});
 			const data = await res.json();
 			if (!res.ok) throw new Error(data?.error ?? 'Failed to create match');
 			target = '';
+			scheduledTimeLocal = '';
 			await load();
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to create match';
@@ -243,6 +259,7 @@
 		});
 	};
 
+	// Board view list (GB-style board, plus active/dispute states)
 	const openBoard = () =>
 		matches.filter((x) => {
 			const s = x.match.status;
@@ -253,10 +270,13 @@
 				s === 'DISPUTED' ||
 				s === 'COMPLETED' ||
 				s === 'DECLINED' ||
-				s === 'CANCELLED' ||
-				s === 'PENDING'
+				s === 'CANCELLED'
 			);
 		});
+
+	function sideLabel(side: ArenaSideKey) {
+		return side === 'A' ? 'Team A' : 'Team B';
+	}
 
 	function rosterText(x: ArenaMatchView, side: ArenaSideKey) {
 		const m = x.match;
@@ -280,11 +300,8 @@
 
 		// Join only when OPEN or LIVE (no late joins in READY/PENDING/etc.)
 		if (!(m.status === 'OPEN' || m.status === 'LIVE')) return false;
-
-		// Direct matches: only join once accepted/open (OPEN/LIVE already enforced above)
-		if (m.visibility === 'DIRECT' && !(m.status === 'OPEN' || m.status === 'LIVE')) return false;
-
-		// Already in roster?
+		// Only allow joining direct matches if not pending
+		if (m.visibility === 'DIRECT' && (m.status !== 'OPEN' && m.status !== 'LIVE')) return false;
 		if (inRoster(x)) return false;
 
 		const size = teamSize(m.format);
@@ -304,15 +321,19 @@
 		return true;
 	}
 
-	function canRespond(x: ArenaMatchView): boolean {
-		const m = x.match;
-		if (m.visibility !== 'DIRECT') return false;
-		if (m.status !== 'PENDING') return false;
+	// GB-style board action: "Accept Match" claims the opponent slot (Team B)
+	function canAcceptMatch(x: ArenaMatchView): boolean {
 		const uid = myUserId();
 		if (!uid) return false;
-		if (m.scope === 'PLAYER') return m.challengedUserId === uid;
-		const cid = myClanId();
-		return !!cid && m.challengedClanId === cid;
+		const m = x.match;
+		if (m.visibility !== 'OPEN') return false;
+		if (m.status !== 'OPEN') return false;
+		if (inRoster(x)) return false;
+		return canJoinSide(x, 'B');
+	}
+
+	async function acceptMatch(x: ArenaMatchView) {
+		await join(x.match.id, 'B');
 	}
 
 	function canReport(x: ArenaMatchView): boolean {
@@ -395,9 +416,17 @@
 			const clan = side === 'A' ? x.teamAClan : x.teamBClan;
 			return clan ? `${clan.tag} (${clan.name})` : side === 'A' ? 'Your Clan' : 'Open';
 		}
-		// PLAYER
 		const roster = side === 'A' ? x.teamAPlayers : x.teamBPlayers;
 		return roster.length ? roster.map((p) => p.username).join(', ') : 'Open';
+	}
+
+	function formatScheduled(ms: number | null | undefined) {
+		if (!ms) return 'TBD';
+		try {
+			return new Date(ms).toLocaleString();
+		} catch {
+			return 'TBD';
+		}
 	}
 
 	function statusBadge(s: string) {
@@ -435,7 +464,7 @@
 	<section class="card">
 		<h2>Create Match</h2>
 		{#if !$isAuthenticated}
-			<div class="hint">Log in to create matches, join teams, and accept challenges.</div>
+			<div class="hint">Log in to create matches and accept open matches.</div>
 		{/if}
 
 		<div class="grid">
@@ -483,6 +512,12 @@
 				<input id="matchRuleset" type="text" bind:value={ruleset} maxlength="60" />
 			</div>
 
+			<div class="field">
+				<label for="matchScheduled">Scheduled</label>
+				<input id="matchScheduled" type="datetime-local" bind:value={scheduledTimeLocal} />
+				<div class="hint">Optional. Leave blank for TBD.</div>
+			</div>
+
 			{#if visibility === 'DIRECT'}
 				<div class="field wide">
 					<label for="matchTarget">{scope === 'PLAYER' ? 'Target Username' : 'Target Clan Tag'}</label>
@@ -522,6 +557,12 @@
 									<span class="pill">{x.match.scope}</span>
 								</div>
 								<div class="status">{statusBadge(x.match.status)}</div>
+							</div>
+
+							<div class="meta">
+								<span class="muted">Scheduled:</span> {formatScheduled(x.match.scheduledTime)}
+								<span class="divider"></span>
+								<span class="muted">Ruleset:</span> {x.match.ruleset}
 							</div>
 
 							<div class="teams">
@@ -576,13 +617,23 @@
 								<div class="status">{statusBadge(x.match.status)}</div>
 							</div>
 
+							<div class="meta">
+								<span class="muted">Scheduled:</span> {formatScheduled(x.match.scheduledTime)}
+								<span class="divider"></span>
+								<span class="muted">Ruleset:</span> {x.match.ruleset}
+							</div>
+
 							<div class="teams">
 								<div>
-									<div class="team-label">Team A <span class="muted">({rosterText(x, 'A')})</span></div>
+									<div class="team-label">
+										Team A <span class="muted">({rosterText(x, 'A')})</span>
+									</div>
 									<div class="team-title">{teamTitle(x, 'A')}</div>
 								</div>
 								<div>
-									<div class="team-label">Team B <span class="muted">({rosterText(x, 'B')})</span></div>
+									<div class="team-label">
+										Team B <span class="muted">({rosterText(x, 'B')})</span>
+									</div>
 									<div class="team-title">{teamTitle(x, 'B')}</div>
 								</div>
 							</div>
@@ -592,12 +643,16 @@
 									Ready-Up required: both teams must ready up before the timer expires.
 									<a href="/refs#ready">Learn more</a>
 								</div>
-							{:else if x.match.status === 'LIVE'}
+							{/if}
+
+							{#if x.match.status === 'LIVE'}
 								<div class="hint flow-callout">
 									Result reporting: each team reports who won. Matching reports complete the match. Conflicts create a dispute.
 									<a href="/refs#reporting">Details</a>
 								</div>
-							{:else if x.match.status === 'DISPUTED'}
+							{/if}
+
+							{#if x.match.status === 'DISPUTED'}
 								<div class="banner warn flow-callout">
 									Dispute flow: update your report to match the other side (if you mis-clicked), or wait for a ref decision.
 									<a href="/refs#disputes">How disputes work</a>
@@ -619,179 +674,182 @@
 								</div>
 							{/if}
 
-							{#if x.match.status === 'COMPLETED'}
-								{#if x.match.winnerSide}
-									<div class="winner">Winner: {x.match.winnerSide === 'A' ? 'Team A' : 'Team B'}</div>
-								{:else}
-									<div class="winner">Winner: —</div>
-								{/if}
-							{/if}
-
-							{#if x.match.status === 'LIVE' || x.match.status === 'DISPUTED' || x.match.status === 'COMPLETED'}
-								<div class="report-panel">
-									<div class="report-row"><span class="muted">Team A reported:</span> {reportLabel(x.match.reportA)}</div>
-									<div class="report-row"><span class="muted">Team B reported:</span> {reportLabel(x.match.reportB)}</div>
-
-									{#if x.match.status === 'DISPUTED'}
-										<div class="banner warn">Dispute: {x.match.disputeReason ?? 'Conflicting reports'}</div>
-									{/if}
-
-									<div class="hint flow-hint">
-										How it works: both teams report a winner. If reports match, the match completes. If not, it becomes DISPUTED until resolved.
-										<a href="/refs#reporting">Learn more about reporting</a>
-									</div>
-
-									{#if canReport(x)}
-										<div class="report-actions">
-											<button
-												class="btn {myReport(x) === 'A' ? 'active' : ''}"
-												on:click={() => reportResult(x.match.id, 'A')}
-												disabled={actionBusy === `report:${x.match.id}:A`}
-											>
-												Report Team A Win
-											</button>
-											<button
-												class="btn secondary {myReport(x) === 'B' ? 'active' : ''}"
-												on:click={() => reportResult(x.match.id, 'B')}
-												disabled={actionBusy === `report:${x.match.id}:B`}
-											>
-												Report Team B Win
-											</button>
-										</div>
-										<div class="hint">Your team can update its report until both sides agree.</div>
-									{:else}
-										{#if x.match.status === 'LIVE' || x.match.status === 'DISPUTED'}
-											<div class="hint">Only match participants can report a result.</div>
-										{/if}
-									{/if}
-								</div>
-							{/if}
-
-							{#if x.match.status === 'DISPUTED' || x.match.status === 'LIVE'}
-								<div class="evidence">
-									<div class="evidence-title">Evidence</div>
-
-									{#if inRoster(x)}
-										<div class="evidence-form">
-											<input
-												class="input"
-												placeholder="Paste clip or screenshot URL (https://...)"
-												bind:value={evidenceUrl[x.match.id]}
-											/>
-											<input
-												class="input"
-												placeholder="Optional note (e.g., Round 3, 0:42)"
-												bind:value={evidenceNote[x.match.id]}
-											/>
-											<button
-												class="btn secondary"
-												on:click={() => addEvidence(x.match.id)}
-												disabled={actionBusy === `evidence:add:${x.match.id}`}
-											>
-												Add Evidence
-											</button>
-										</div>
-									{:else}
-										<div class="hint">Only match participants can submit evidence.</div>
-									{/if}
-
-									<div class="evidence-grid">
-										<div class="evidence-col">
-											<div class="muted small">Team A</div>
-											{#if evidenceList(x, 'A').length === 0}
-												<div class="muted small">No evidence yet.</div>
-											{:else}
-												{#each evidenceList(x, 'A') as ev (ev.id)}
-													<div class="evidence-item">
-														<a class="evidence-link" href={ev.url} target="_blank" rel="noreferrer">{ev.url}</a>
-														{#if ev.note}
-															<div class="muted small">{ev.note}</div>
-														{/if}
-														{#if ev.addedBy === myUserId()}
-															<button
-																class="btn ghost sm"
-																on:click={() => removeEvidence(x.match.id, ev.id)}
-																disabled={actionBusy === `evidence:remove:${x.match.id}:${ev.id}`}
-															>
-																Remove
-															</button>
-														{/if}
-													</div>
-												{/each}
-											{/if}
-										</div>
-
-										<div class="evidence-col">
-											<div class="muted small">Team B</div>
-											{#if evidenceList(x, 'B').length === 0}
-												<div class="muted small">No evidence yet.</div>
-											{:else}
-												{#each evidenceList(x, 'B') as ev (ev.id)}
-													<div class="evidence-item">
-														<a class="evidence-link" href={ev.url} target="_blank" rel="noreferrer">{ev.url}</a>
-														{#if ev.note}
-															<div class="muted small">{ev.note}</div>
-														{/if}
-														{#if ev.addedBy === myUserId()}
-															<button
-																class="btn ghost sm"
-																on:click={() => removeEvidence(x.match.id, ev.id)}
-																disabled={actionBusy === `evidence:remove:${x.match.id}:${ev.id}`}
-															>
-																Remove
-															</button>
-														{/if}
-													</div>
-												{/each}
-											{/if}
-										</div>
-									</div>
-
-									<div class="hint">
-										Tip: link a clip, a screenshot, or a timestamped VOD segment. Keep it clean and factual.
-									</div>
-								</div>
-							{/if}
-
+							<!-- Completed winner is shown in the details panel below; keep the board header clean. -->
+							<!-- Board actions: GB-style Accept + Details toggle -->
 							<div class="actions">
-								{#if canRespond(x)}
-									<button class="btn" on:click={() => respond(x.match.id, 'ACCEPT')} disabled={actionBusy === `respond:${x.match.id}:ACCEPT`}>
-										Accept
-									</button>
-									<button class="btn secondary" on:click={() => respond(x.match.id, 'DECLINE')} disabled={actionBusy === `respond:${x.match.id}:DECLINE`}>
-										Decline
+								{#if canAcceptMatch(x)}
+									<button class="btn" on:click={() => acceptMatch(x)} disabled={actionBusy === `join:${x.match.id}:B`}>
+										Accept Match
 									</button>
 								{:else}
-									{#if x.match.status === 'READY'}
-										{#if myReadySide(x)}
-											<button
-												class="btn {canReadyUp(x) ? '' : 'active'}"
-												on:click={() => readyUp(x.match.id)}
-												disabled={!canReadyUp(x) || actionBusy === `ready:${x.match.id}`}
-											>
-												{canReadyUp(x) ? 'Ready Up' : 'Ready ✓'}
-											</button>
-										{:else}
-											<div class="hint">Rosters locked. Waiting for teams to ready up.</div>
-										{/if}
-									{:else}
-										<button
-											class="btn"
-											on:click={() => join(x.match.id, 'A')}
-											disabled={!canJoinSide(x, 'A') || actionBusy === `join:${x.match.id}:A`}
-										>
-											Join Team A
-										</button>
-										<button
-											class="btn secondary"
-											on:click={() => join(x.match.id, 'B')}
-											disabled={!canJoinSide(x, 'B') || actionBusy === `join:${x.match.id}:B`}
-										>
-											Join Team B
-										</button>
+									{#if x.match.visibility === 'OPEN' && x.match.status === 'OPEN'}
+										<div class="hint">Not eligible to accept this match.</div>
 									{/if}
 								{/if}
+
+								<button class="btn secondary" on:click={() => toggleDetails(x.match.id)}>
+									{expanded[x.match.id] ? 'Hide Details' : 'View Details'}
+								</button>
 							</div>
+
+							<!-- Always show core live/dispute panels; for OPEN matches keep it compact unless expanded -->
+							{#if expanded[x.match.id] || x.match.status === 'READY' || x.match.status === 'LIVE' || x.match.status === 'DISPUTED' || x.match.status === 'COMPLETED'}
+								{#if x.match.status === 'READY'}
+									<div class="ready-panel">
+										<div class="report-row">
+											<span class="muted">Ready:</span>
+											Team A {isSideReady(x, 'A') ? '✓' : '…'} | Team B {isSideReady(x, 'B') ? '✓' : '…'}
+										</div>
+										<div class="report-row">
+											<span class="muted">Time left:</span> {readyTimeLeftLabel(x.match.readyDeadlineAt)}
+										</div>
+										<div class="actions" style="margin-top: 10px;">
+											{#if myReadySide(x)}
+												<button
+													class="btn"
+													on:click={() => readyUp(x.match.id)}
+													disabled={!canReadyUp(x) || actionBusy === `ready:${x.match.id}`}
+												>
+													{canReadyUp(x) ? 'Ready Up' : 'Ready ✓'}
+												</button>
+											{:else}
+												<div class="hint">Rosters locked. Waiting for teams to ready up.</div>
+											{/if}
+										</div>
+									</div>
+								{/if}
+
+								{#if x.match.status === 'COMPLETED'}
+									<div class="winner">
+										Winner: {x.match.winnerSide ? (x.match.winnerSide === 'A' ? 'Team A' : 'Team B') : '—'}
+									</div>
+								{/if}
+
+								{#if x.match.status === 'LIVE' || x.match.status === 'DISPUTED' || x.match.status === 'COMPLETED'}
+									<div class="report-panel">
+										<div class="report-row"><span class="muted">Team A reported:</span> {reportLabel(x.match.reportA)}</div>
+										<div class="report-row"><span class="muted">Team B reported:</span> {reportLabel(x.match.reportB)}</div>
+
+										{#if x.match.status === 'DISPUTED'}
+											<div class="banner warn">Dispute: {x.match.disputeReason ?? 'Conflicting reports'}</div>
+										{/if}
+
+										<div class="hint flow-hint">
+											How it works: both teams report a winner. If reports match, the match completes. If not, it becomes DISPUTED until resolved.
+											<a href="/refs#reporting">Learn more about reporting</a>
+										</div>
+
+										{#if canReport(x)}
+											<div class="report-actions">
+												<button
+													class="btn {myReport(x) === 'A' ? 'active' : ''}"
+													on:click={() => reportResult(x.match.id, 'A')}
+													disabled={actionBusy === `report:${x.match.id}:A`}
+												>
+													Report Team A Win
+												</button>
+												<button
+													class="btn secondary {myReport(x) === 'B' ? 'active' : ''}"
+													on:click={() => reportResult(x.match.id, 'B')}
+													disabled={actionBusy === `report:${x.match.id}:B`}
+												>
+													Report Team B Win
+												</button>
+											</div>
+											<div class="hint">Your team can update its report until both sides agree.</div>
+										{:else}
+											{#if x.match.status === 'LIVE' || x.match.status === 'DISPUTED'}
+												<div class="hint">Only match participants can report a result.</div>
+											{/if}
+										{/if}
+									</div>
+								{/if}
+
+								<!-- Evidence (LIVE/DISPUTED only) -->
+								{#if x.match.status === 'DISPUTED' || x.match.status === 'LIVE'}
+									<div class="evidence">
+										<div class="evidence-title">Evidence</div>
+
+										{#if inRoster(x)}
+											<div class="evidence-form">
+												<input
+													class="input"
+													placeholder="Paste clip or screenshot URL (https://...)"
+													bind:value={evidenceUrl[x.match.id]}
+												/>
+												<input
+													class="input"
+													placeholder="Optional note (e.g., Round 3, 0:42)"
+													bind:value={evidenceNote[x.match.id]}
+												/>
+												<button
+													class="btn secondary"
+													on:click={() => addEvidence(x.match.id)}
+													disabled={actionBusy === `evidence:add:${x.match.id}`}
+												>
+													Add Evidence
+												</button>
+											</div>
+										{:else}
+											<div class="hint">Only match participants can submit evidence.</div>
+										{/if}
+
+										<div class="evidence-grid">
+											<div class="evidence-col">
+												<div class="muted small">Team A</div>
+												{#if evidenceList(x, 'A').length === 0}
+													<div class="muted small">No evidence yet.</div>
+												{:else}
+													{#each evidenceList(x, 'A') as ev (ev.id)}
+														<div class="evidence-item">
+															<a class="evidence-link" href={ev.url} target="_blank" rel="noreferrer">{ev.url}</a>
+															{#if ev.note}
+																<div class="muted small">{ev.note}</div>
+															{/if}
+															{#if ev.addedBy === myUserId()}
+																<button
+																	class="btn ghost sm"
+																	on:click={() => removeEvidence(x.match.id, ev.id)}
+																	disabled={actionBusy === `evidence:remove:${x.match.id}:${ev.id}`}
+																>
+																	Remove
+																</button>
+															{/if}
+														</div>
+													{/each}
+												{/if}
+											</div>
+
+											<div class="evidence-col">
+												<div class="muted small">Team B</div>
+												{#if evidenceList(x, 'B').length === 0}
+													<div class="muted small">No evidence yet.</div>
+												{:else}
+													{#each evidenceList(x, 'B') as ev (ev.id)}
+														<div class="evidence-item">
+															<a class="evidence-link" href={ev.url} target="_blank" rel="noreferrer">{ev.url}</a>
+															{#if ev.note}
+																<div class="muted small">{ev.note}</div>
+															{/if}
+															{#if ev.addedBy === myUserId()}
+																<button
+																	class="btn ghost sm"
+																	on:click={() => removeEvidence(x.match.id, ev.id)}
+																	disabled={actionBusy === `evidence:remove:${x.match.id}:${ev.id}`}
+																>
+																	Remove
+																</button>
+															{/if}
+														</div>
+													{/each}
+												{/if}
+											</div>
+										</div>
+
+										<div class="hint">Tip: link a clip, a screenshot, or a timestamped VOD segment. Keep it clean and factual.</div>
+									</div>
+								{/if}
+							{/if}
 						</div>
 					{/each}
 				</div>
@@ -963,6 +1021,16 @@
 		font-size: 13px;
 	}
 
+	.meta {
+		margin-top: 10px;
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+		align-items: center;
+		color: rgba(255, 255, 255, 0.82);
+		font-size: 12px;
+	}
+
 	.teams {
 		margin-top: 12px;
 		display: grid;
@@ -1051,6 +1119,7 @@
 		border: 1px solid rgba(255, 255, 255, 0.12);
 		color: rgba(255, 255, 255, 0.85);
 	}
+
 	:global(.btn.sm) {
 		padding: 6px 10px;
 		font-size: 12px;

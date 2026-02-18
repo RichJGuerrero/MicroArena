@@ -28,6 +28,8 @@ import type {
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { validateEvidenceUrl } from '$lib/server/evidence';
+
 // ============================================
 // DATA STORES
 // ============================================
@@ -1574,8 +1576,7 @@ export function addArenaMatchEvidence(id: string, userId: string, url: string, n
 	const match = arenaMatches.get(id);
 	if (!match) throw new Error('Match not found');
 	const u = (url ?? '').trim();
-	if (!u) throw new Error('url is required');
-	if (!(u.startsWith('http://') || u.startsWith('https://'))) throw new Error('url must start with http:// or https://');
+	const { provider, normalizedUrl } = validateEvidenceUrl(u);
 
 	const isA = match.teamA.playerIds.includes(userId);
 	const isB = match.teamB.playerIds.includes(userId);
@@ -1591,7 +1592,9 @@ export function addArenaMatchEvidence(id: string, userId: string, url: string, n
 	evidence.push({
 		id: generateId(),
 		side,
-		url: u,
+		kind: 'LINK',
+		provider,
+		url: normalizedUrl,
 		note: (note ?? '').trim() || null,
 		addedBy: userId,
 		addedAt: now

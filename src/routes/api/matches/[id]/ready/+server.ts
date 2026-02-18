@@ -1,7 +1,8 @@
 import { json } from '@sveltejs/kit';
+import type { RequestHandler } from './$types';
 import { isUserBanned, readyUpArenaMatch } from '$lib/server/store';
 
-export async function POST({ params, request }) {
+export const POST: RequestHandler = async ({ params, request }) => {
 	try {
 		const { userId } = await request.json();
 		if (!userId) return json({ error: 'userId is required' }, { status: 400 });
@@ -11,4 +12,4 @@ export async function POST({ params, request }) {
 	} catch (e: any) {
 		return json({ error: e?.message ?? 'Failed to ready up' }, { status: 400 });
 	}
-}
+};

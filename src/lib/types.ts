@@ -335,10 +335,19 @@ export interface ArenaMatchSide {
 export interface ArenaEvidenceItem {
 	id: string;
 	side: ArenaSideKey;
+	/** Evidence kind: LINK now; UPLOAD later when we support direct uploads. */
+	kind?: 'LINK' | 'UPLOAD';
+	/** Normalized provider for refs/AI tooling (best-effort). */
+	provider?: 'YOUTUBE' | 'TWITCH' | 'STREAMABLE' | 'IMGUR' | 'OTHER';
 	url: string;
 	note: string | null;
 	addedBy: string;
 	addedAt: number;
+	// Future upload fields (kept optional for backwards compatibility)
+	fileName?: string | null;
+	mimeType?: string | null;
+	bytes?: number | null;
+	storageKey?: string | null;
 }
 
 export interface ArenaMatch {

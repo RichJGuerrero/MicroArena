@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { addArenaMatchEvidence, removeArenaMatchEvidence, getArenaMatch, getArenaMatchViews, isUserBanned } from '$lib/server/store';
+import { validateEvidenceUrl } from '$lib/server/evidence';
 
 // ============================================
 // /api/matches/:id/evidence
@@ -22,10 +23,13 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		if (isUserBanned(userId)) return json({ error: 'BANNED' }, { status: 403 });
 		if (!url) return json({ error: 'url is required' }, { status: 400 });
 
+		// Validate early for clean error messaging.
+		const { normalizedUrl } = validateEvidenceUrl(url);
+
 		const existing = getArenaMatch(id);
 		if (!existing) return json({ error: 'Match not found' }, { status: 404 });
 
-		addArenaMatchEvidence(id, userId, url, note);
+		addArenaMatchEvidence(id, userId, normalizedUrl, note);
 		const view = getArenaMatchViews().find((x) => x.match.id === id) ?? null;
 		return json({ match: view?.match ?? null, view });
 	} catch (err) {
